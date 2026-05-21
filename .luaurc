@@ -1,0 +1,9 @@
+{
+	"lint": {
+    	"*": true,
+     	"LocalShadow": false
+	},
+	"aliases": {
+		"std": "~/.lute/typedefs/1.0.0/std"
+	}
+}
