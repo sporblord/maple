@@ -114,25 +114,21 @@ end
 
 -- queries
 
+export type cached_query<t... = ...any> = setmetatable<{
+	size: (self: cached_query<t...>) -> number,
+	added: (self: cached_query<t...>, callback: listener<(entity, t...)>) -> cleanup,
+	removed: (self: cached_query<t...>, callback: listener<entity>) -> cleanup,
+}, {
+	__iter: (self: cached_query<t...>) -> () -> (entity, t...)
+}>
+
 export type query<t... = ...any> = setmetatable<{
 	ids: { id },
 	ids_exclude: { id },
 	without: (self: query<t...>, ...entity) -> query<t...>,
-	observe: (self: query<t...>) -> observer<t...>,
+	cached: (self: query<t...>) -> cached_query<t...>,
 }, {
 	__iter: (self: query<t...>) -> () -> (entity, t...)
-}>
-
-export type monitor_added<t... = ...any> = setmetatable<{
-
-}, {
-	__iter: (self: monitor_added<t...>) -> () -> (entity, t...)
-}>
-
-export type observer<t... = ...any> = setmetatable<{
-	size: (self: observer<t...>) -> number,
-}, {
-	__iter: (self: observer<t...>) -> () -> (entity, t...)
 }>
 
 type world_query =
@@ -341,7 +337,7 @@ local function world_has(self: world, entity: entity, id: id): boolean
 	return pool ~= nil and pool.sparse[entity] ~= nil
 end
 
-local function world_observer(self: world, query: query): observer
+local function world_query_cached(self: world, query: query): cached_query
 	local set = sparse_set_create()
 	local counts: { [entity]: number } = {}
 
@@ -363,8 +359,8 @@ local function world_observer(self: world, query: query): observer
 
 	local function on_entity_removed(entity: entity)
 		counts[entity] = (counts[entity] or 0) - 1
-		local index = set.sparse[entity]
 
+		local index = set.sparse[entity]
 		if index then
 			signal_fire(on_unmatched, entity)
 			sparse_set_remove(set, entity)
@@ -385,7 +381,7 @@ local function world_observer(self: world, query: query): observer
 		world_removed(self, id, on_entity_added)
 	end
 
-	local function observer_iter()
+	local function query_iter()
 		local i = set.size + 1
 		return function(): any
 			i -= 1
@@ -407,48 +403,34 @@ local function world_observer(self: world, query: query): observer
 		end
 	end
 
-	local function observer_monitor_added()
-		local new = sparse_set_create()
-		signal_connect(on_matched, function(entity: entity)
-			sparse_set_add(new, entity)
-		end)
-
-		local function monitor_iter()
-			local i = new.size + 1
-			return function(): any
-				i -= 1
-
-				local entity = new.dense[i]
-				if not entity then
-					return
-				end
-
-				local values = {}
-				for j, id in ids do
-					local pool = assert(self.pools[id])
-					local index = pool.sparse[entity]
-					local value = pool.values[index]
-					values[j] = value
-				end
-
-				return entity, unpack(values)
+	local function query_added(query: query, callback: listener<(entity, ...any)>)
+		return signal_connect(on_matched, function(entity)
+			local values = {}
+			for i, id in ids do
+				local pool = assert(self.pools[id])
+				local index = pool.sparse[entity]
+				local value = pool.values[index]
+				values[i] = value
 			end
-		end
 
-		return setmetatable({}, {
-			__iter = monitor_iter,
-		})
+			callback(entity, unpack(values))
+		end)
 	end
 
-	local function observer_size()
+	local function query_removed(query: query, callback: listener<entity>)
+		return signal_connect(on_unmatched, callback)
+	end
+
+	local function query_size()
 		return set.size
 	end
 
 	return setmetatable({
-		size = observer_size,
-		added = observer_monitor_added,
+		size = query_size,
+		added = query_added,
+		removed = query_removed,
 	}, {
-		__iter = observer_iter,
+		__iter = query_iter,
 	})
 end
 
@@ -532,15 +514,15 @@ local function world_query(self: world, ...: id): query
 		return query
 	end
 
-	local function query_observer(query: query)
-		return world_observer(self, query)
+	local function query_cached(query: query)
+		return world_query_cached(self, query)
 	end
 
 	return setmetatable({
 		ids = ids,
 		ids_exclude = ids_exclude,
 		without = query_without,
-		observe = query_observer
+		cached = query_cached
 	}, {
 		__iter = query_iter
 	})
