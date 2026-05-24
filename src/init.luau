@@ -115,58 +115,18 @@ end
 
 -- queries
 
-export type cached_query<t... = ...any> = setmetatable<{
-	size: (self: cached_query<t...>) -> number,
-	added: (self: cached_query<t...>, callback: listener<(entity, t...)>) -> cleanup,
-	removed: (self: cached_query<t...>, callback: listener<entity>) -> cleanup,
-}, {
-	__iter: (self: cached_query<t...>) -> () -> (entity, t...)
-}>
+export type query<t... = ...any> = {
+	size: (self: query<t...>) -> number,
+	without: (self: query<t...>) -> query<t...>,
+	matched: (self: query<t...>, callback: listener<(entity, t...)>) -> cleanup,
+	unmatched: (self: query<t...>, callback: listener<entity>) -> cleanup,
+	iter: (self: query<t...>) -> () -> (entity, t...)
+}
 
-export type view<t... = ...any> = setmetatable<{
+export type view<t... = ...any> = {
 	without: (self: view<t...>, ...entity) -> view<t...>,
-}, {
-	__iter: (self: view<t...>) -> () -> (entity, t...)
-}>
-
-export type query<t... = ...any> = setmetatable<{
-	ids: { id },
-	ids_exclude: { id },
-	without: (self: query<t...>, ...entity) -> query<t...>,
-	cached: (self: query<t...>) -> cached_query<t...>,
-}, {
-	__iter: (self: query<t...>) -> () -> (entity, t...)
-}>
-
-type world_query =
-	& ((world) -> query)
-	& (<a>(world, id<a>) -> query<a>)
-	& (<a, b>(world, id<a>, id<b>) -> query<a, b>)
-	& (<a, b, c>(world, id<a>, id<b>, id<c>) -> query<a, b, c>)
-	& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> query<a, b, c, d>)
-	& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> query<a, b, c, d, e>)
-
-type world_view =
-	& ((world) -> view)
-	& (<a>(world, id<a>) -> view<a>)
-	& (<a, b>(world, id<a>, id<b>) -> view<a, b>)
-	& (<a, b, c>(world, id<a>, id<b>, id<c>) -> view<a, b, c>)
-	& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> view<a, b, c, d>)
-	& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> view<a, b, c, d, e>)
-
-type world_get =
-	& (<a>(world, entity, id<a>) -> (a?))
-	& (<a, b>(world, entity, id<a>, id<b>) -> (a?, b?))
-	& (<a, b, c>(world, entity, id<a>, id<b>, id<c>) -> (a?, b?, c?))
-	& (<a, b, c, d>(world, entity, id<a>, id<b>, id<c>, id<d>) -> (a?, b?, c?, d?))
-	& (<a, b, c, d, e>(world, entity, id<a>, id<b>, id<c>, id<d>, id<e>) -> (a?, b?, c?, d?, e?))
-
-type world_expect =
-	& (<a>(world, entity, id<a>) -> (a))
-	& (<a, b>(world, entity, id<a>, id<b>) -> (a, b))
-	& (<a, b, c>(world, entity, id<a>, id<b>, id<c>) -> (a, b, c))
-	& (<a, b, c, d>(world, entity, id<a>, id<b>, id<c>, id<d>) -> (a, b, c, d))
-	& (<a, b, c, d, e>(world, entity, id<a>, id<b>, id<c>, id<d>, id<e>) -> (a, b, c, d, e))
+	iter: (self: view<t...>) -> () -> (entity, t...)
+}
 
 -- world
 
@@ -190,11 +150,25 @@ export type world = {
 	changed: <t>(self: world, id: id<t>, listener: listener<entity, t>) -> cleanup,
 	removed: <t>(self: world, id: id<t>, listener: listener<entity>) -> cleanup,
 	has: (self: world, entity: entity, id: id) -> boolean,
-	query: world_query,
-	view: world_view,
-	get: world_get,
-	expect: world_expect,
 	relation: (self: world, cascade_deletions: boolean?) -> (id<entity>, id<{ entity }>),
+	get: <t>(self: world, entity: entity, id: id<t>) -> t?,
+	expect: <t>(self: world, entity: entity, id: id<t>) -> t,
+
+	query:
+		& ((world) -> query)
+		& (<a>(world, id<a>) -> query<a>)
+		& (<a, b>(world, id<a>, id<b>) -> query<a, b>)
+		& (<a, b, c>(world, id<a>, id<b>, id<c>) -> query<a, b, c>)
+		& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> query<a, b, c, d>)
+		& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> query<a, b, c, d, e>),
+
+	view:
+		& ((world) -> view)
+		& (<a>(world, id<a>) -> view<a>)
+		& (<a, b>(world, id<a>, id<b>) -> view<a, b>)
+		& (<a, b, c>(world, id<a>, id<b>, id<c>) -> view<a, b, c>)
+		& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> view<a, b, c, d>)
+		& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> view<a, b, c, d, e>),
 }
 
 local function world_entity(self: world): entity
@@ -353,13 +327,16 @@ local function world_has(self: world, entity: entity, id: id): boolean
 	return pool ~= nil and pool.sparse[entity] ~= nil
 end
 
-local function world_query_cached(self: world, query: query): cached_query
-	local set = sparse_set_create()
+local function world_query(self: world, ...: id): query
+	local storage = sparse_set_create()
 	local counts: { [entity]: number } = {}
 
-	local ids = query.ids
-	local ids_exclude = query.ids_exclude
-	local target_count = #ids
+	local ids = { ... }
+	local ids_exclude = {}
+	local n_include = #ids
+	local n_exclude = 0
+
+	assert(n_include > 0, "query requires at least one id")
 
 	local on_matched: { listener<entity> } = {}
 	local on_unmatched: { listener<entity> } = {}
@@ -367,19 +344,19 @@ local function world_query_cached(self: world, query: query): cached_query
 	local function on_entity_added(entity: entity)
 		counts[entity] = (counts[entity] or 0) + 1
 
-		if counts[entity] >= target_count and not set.sparse[entity] then
+		if counts[entity] >= n_include and not storage.sparse[entity] then
 			signal_fire(on_matched, entity)
-			sparse_set_add(set, entity)
+			sparse_set_add(storage, entity)
 		end
 	end
 
 	local function on_entity_removed(entity: entity)
 		counts[entity] = (counts[entity] or 0) - 1
 
-		local index = set.sparse[entity]
+		local index = storage.sparse[entity]
 		if index then
 			signal_fire(on_unmatched, entity)
-			sparse_set_remove(set, entity)
+			sparse_set_remove(storage, entity)
 		end
 
 		if (counts[entity] or 0) <= 0 then
@@ -397,29 +374,39 @@ local function world_query_cached(self: world, query: query): cached_query
 		world_removed(self, id, on_entity_added)
 	end
 
-	local function query_iter()
-		local i = set.size + 1
-		return function(): any
-			i -= 1
+	local function query_iter(): () -> ...any
+		local i = storage.size + 1
+		if n_include == 1 then
+			local a = self.pools[ids[1]]
 
-			local entity = set.dense[i]
-			if not entity then
-				return
+			return function()
+				i -= 1
+				if i == 0 then return end
+				local entity = storage.dense[i]
+				local ia = a.sparse[entity]
+
+				return entity, a.values[ia]
 			end
-
-			local values = {}
-			for j, id in ids do
-				local pool = assert(self.pools[id])
-				local index = pool.sparse[entity]
-				local value = pool.values[index]
-				values[j] = value
-			end
-
-			return entity, unpack(values)
+		else
+			error("world_query: too many ids")
 		end
 	end
 
-	local function query_added(query: query, callback: listener<(entity, ...any)>)
+	local function query_size()
+		return storage.size
+	end
+
+	local function query_without(query: query, ...: id)
+		for i = 1, select("#", ...) do
+			local id = select(i, ...)
+			table.insert(ids_exclude, id)
+			n_exclude += 1
+		end
+
+		return query
+	end
+
+	local function query_matched(query: query, callback: listener<(entity, ...any)>)
 		return signal_connect(on_matched, function(entity)
 			local values = {}
 			for i, id in ids do
@@ -433,115 +420,17 @@ local function world_query_cached(self: world, query: query): cached_query
 		end)
 	end
 
-	local function query_removed(query: query, callback: listener<entity>)
+	local function query_unmatched(query: query, callback: listener<entity>)
 		return signal_connect(on_unmatched, callback)
 	end
 
-	local function query_size()
-		return set.size
-	end
-
-	return setmetatable({
+	return {
 		size = query_size,
-		added = query_added,
-		removed = query_removed,
-	}, {
-		__iter = query_iter,
-	})
-end
-
--- TODO: optimize each id case
-local function world_query(self: world, ...: id): query
-	local ids = { ... }
-	local ids_exclude = {}
-	local id_count = 0
-	local id_exclude_count = 0
-
-	-- pivot is the component with the smallest number of entities
-	-- this allows us to narrow iteration and minimize misses
-	local pivot_id
-	local pivot_size = 0
-	for i = 1, #ids do
-		local id = ids[i]
-		local pool = self.pools[id]
-		if pool and (pivot_id == nil or pool.size < pivot_size) then
-			pivot_id = id
-			pivot_size = pool.size
-		end
-
-		id_count += 1
-	end
-
-	local function query_iter(query: query)
-		assert(pivot_id)
-
-		local i = pivot_size + 1
-		local pivot = self.pools[pivot_id]
-
-		return function(): any
-			while i > 0 do
-				i -= 1
-
-				local entity = pivot.dense[i]
-				local skip = false
-
-				for _, id in ids_exclude do
-					local pool = self.pools[id]
-					if pool and pool.sparse[entity] then
-						skip = true
-						break
-					end
-				end
-
-				if skip then
-					continue
-				end
-
-				local values = {}
-				for i, id in ids do
-					local pool = self.pools[id]
-					if pool == nil or not pool.sparse[entity] then
-						skip = true
-						break
-					end
-
-					local index = pool.sparse[entity]
-					local value = pool.values[index]
-					values[i] = value
-				end
-
-				if skip then
-					continue
-				end
-
-				return entity, unpack(values)
-			end
-
-			return nil
-		end
-	end
-
-	local function query_without(query: query, ...: id)
-		for _, id in { ...} do
-			table.insert(ids_exclude, id)
-			id_exclude_count += 1
-		end
-
-		return query
-	end
-
-	local function query_cached(query: query)
-		return world_query_cached(self, query)
-	end
-
-	return setmetatable({
-		ids = ids,
-		ids_exclude = ids_exclude,
 		without = query_without,
-		cached = query_cached
-	}, {
-		__iter = query_iter
-	})
+		matched = query_matched,
+		unmatched = query_unmatched,
+		iter = query_iter,
+	}
 end
 
 local function world_exclude(self: world, entity: entity, ids: { id })
@@ -578,11 +467,11 @@ local function world_exclude(self: world, entity: entity, ids: { id })
 	end
 end
 
-local function world_view(self: world, ...: id): query
+local function world_view(self: world, ...: id): view
 	local ids = { ... }
 	local ids_exclude = {}
 
-	local function view_iter(query: query)
+	local function view_iter(): () -> ...any
 		--	local i = pivot_size + 1
 		--local pivot = self.pools[pivot_id]
 		local n_include = #ids
@@ -746,22 +635,48 @@ local function world_view(self: world, ...: id): query
 		end
 	end
 
-	local function view_without(query: query, ...: id)
+	local function view_without(view: view, ...: id)
 		for _, id in { ... } do
 			table.insert(ids_exclude, id)
 		end
 
-		return query
+		return view
 	end
 
-	return setmetatable({
+	return {
 		without = view_without,
-	}, {
-		__iter = view_iter
-	})
+		iter = view_iter
+	}
 end
 
-local function world_get(self: world, entity: entity, ...: id): ...any?
+local function world_get(self: world, entity: entity, id: id): any?
+	local pool = self.pools[id]
+	if not pool then
+		return
+	end
+
+	local index = pool.sparse[entity]
+	if not index then
+		return
+	end
+
+	return pool.values[index]
+end
+
+local function world_expect(self: world, entity: entity, id: id): any
+	local pool = self.pools[id]
+	assert(pool ~= nil, `pool {id} contains no entities`)
+
+	local index = pool.sparse[entity]
+	assert(index ~= nil, `component {id} does not exist on entity {entity}`)
+
+	local value = pool.values[index]
+	assert(value ~= nil, `component {id} does not have a value for entity {entity}`)
+
+	return value
+end
+
+--[[local function world_get(self: world, entity: entity, ...: id): ...any?
 	local function fetch(id: id): any?
 		local pool = self.pools[id]
 		if not pool then
@@ -831,7 +746,7 @@ local function world_expect(self: world, entity: entity, ...: id): ...any
 	else
 		error("world:expect does not support more than 5 components")
 	end
-end
+end--]]
 
 -- relationships
 -- for reference: subject is the entity with the relation component

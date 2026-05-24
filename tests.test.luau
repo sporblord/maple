@@ -55,7 +55,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)) do
+		for entity in world:view(unpack_ids(include)):iter() do
 			count += 1
 		end
 		asserts.eq(count, 10)
@@ -84,7 +84,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)) do
+		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)):iter() do
 			count += 1
 		end
 		asserts.eq(count, 5)
@@ -106,7 +106,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity, a, b in world:view(unpack_ids(include)) do
+		for entity, a, b in world:view(unpack_ids(include)):iter() do
 			asserts.neq(a, nil)
 			asserts.neq(b, nil)
 			count += 1
@@ -142,7 +142,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)) do
+		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)):iter() do
 			count += 1
 		end
 
