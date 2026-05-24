@@ -587,6 +587,7 @@ local function world_view(self: world, ...: id): query
 		--	local i = pivot_size + 1
 		--local pivot = self.pools[pivot_id]
 		local n_include = #ids
+		local n_exclude = #ids_exclude
 
 		if n_include == 1 then
 			local a = self.pools[ids[1]]
@@ -599,7 +600,7 @@ local function world_view(self: world, ...: id): query
 					if i == 0 then return end
 					local entity = a.dense[i]
 
-					if world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -623,7 +624,7 @@ local function world_view(self: world, ...: id): query
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -654,7 +655,7 @@ local function world_view(self: world, ...: id): query
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -688,7 +689,7 @@ local function world_view(self: world, ...: id): query
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -725,7 +726,7 @@ local function world_view(self: world, ...: id): query
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
