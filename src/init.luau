@@ -2,10 +2,12 @@
 --!optimize 2
 --!native
 -- author: sporblord
--- maple sweep!
 
 local task = task or require("@std/task")
 
+local function NOOP() return nil :: any end
+
+-- ids
 export type entity<t = any> = { __t: t }
 export type id<t = any> = entity<t>
 
@@ -31,10 +33,9 @@ local function id_version(id: number)
 	return id // ID_ENTITY_MASK
 end
 
--- reserved ids
-local id_any = id_cast_entity(0)
-local id_child_of = id_cast_entity(1)
-local id_rest = id_cast_entity(2)
+local ID_ANY = id_cast_entity(0)
+local ID_CHILD_OF = id_cast_entity(1)
+local ID_REST = id_cast_entity(2)
 
 -- signal utilities
 type cleanup = () -> ()
@@ -122,6 +123,12 @@ export type cached_query<t... = ...any> = setmetatable<{
 	__iter: (self: cached_query<t...>) -> () -> (entity, t...)
 }>
 
+export type view<t... = ...any> = setmetatable<{
+	without: (self: view<t...>, ...entity) -> view<t...>,
+}, {
+	__iter: (self: view<t...>) -> () -> (entity, t...)
+}>
+
 export type query<t... = ...any> = setmetatable<{
 	ids: { id },
 	ids_exclude: { id },
@@ -138,6 +145,14 @@ type world_query =
 	& (<a, b, c>(world, id<a>, id<b>, id<c>) -> query<a, b, c>)
 	& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> query<a, b, c, d>)
 	& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> query<a, b, c, d, e>)
+
+type world_view =
+	& ((world) -> view)
+	& (<a>(world, id<a>) -> view<a>)
+	& (<a, b>(world, id<a>, id<b>) -> view<a, b>)
+	& (<a, b, c>(world, id<a>, id<b>, id<c>) -> view<a, b, c>)
+	& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> view<a, b, c, d>)
+	& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> view<a, b, c, d, e>)
 
 type world_get =
 	& (<a>(world, entity, id<a>) -> (a?))
@@ -176,6 +191,7 @@ export type world = {
 	removed: <t>(self: world, id: id<t>, listener: listener<entity>) -> cleanup,
 	has: (self: world, entity: entity, id: id) -> boolean,
 	query: world_query,
+	view: world_view,
 	get: world_get,
 	expect: world_expect,
 	relation: (self: world, cascade_deletions: boolean?) -> (id<entity>, id<{ entity }>),
@@ -335,6 +351,40 @@ end
 local function world_has(self: world, entity: entity, id: id): boolean
 	local pool = self.pools[id]
 	return pool ~= nil and pool.sparse[entity] ~= nil
+end
+
+local function world_exclude(self: world, entity: entity, ids: { id })
+	local a, b, c, d, e, ERR = ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
+
+	if a == nil then
+		return false
+	elseif b == nil then
+		return world_has(self, entity, a)
+	elseif c == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+	elseif d == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+	elseif e == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+			or world_has(self, entity, d)
+	elseif ERR == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+			or world_has(self, entity, d)
+			or world_has(self, entity, e)
+	else
+		error("world_exclude: too many ids")
+	end
 end
 
 local function world_query_cached(self: world, query: query): cached_query
@@ -528,6 +578,189 @@ local function world_query(self: world, ...: id): query
 	})
 end
 
+-- TODO: optimize each id case
+local function world_view(self: world, ...: id): query
+	local ids = { ... }
+	local ids_exclude = {}
+
+	local function view_iter(query: query)
+		--	local i = pivot_size + 1
+		--local pivot = self.pools[pivot_id]
+		local n_include = #ids
+
+		if n_include == 1 then
+			local a = self.pools[ids[1]]
+			if not a then return NOOP end
+
+			local i = a.size + 1
+			return function()
+				while i > 0 do
+					i -= 1
+					if i == 0 then return end
+					local entity = a.dense[i]
+
+					if world_exclude(self, entity, ids_exclude) then
+						continue
+					end
+
+					return entity, a.values[i]
+				end
+			end
+
+		elseif n_include == 2 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			if not a or not b then return NOOP end
+
+			local p =
+				if a.size < b.size then a
+				else b
+
+			local i = p.size + 1
+			return function()
+				while i > 0 do
+					i -= 1
+					if i == 0 then return end
+					local entity = p.dense[i]
+
+					if world_exclude(self, entity, ids_exclude) then
+						continue
+					end
+
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					if not ia or not ib then
+						continue
+					end
+
+					return entity, a.values[ia], b.values[ib]
+				end
+			end
+		elseif n_include == 3 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+			if not a or not b or not c then return NOOP end
+
+			local p =
+				if a.size < b.size and a.size < c.size then a
+				elseif b.size < c.size then b
+				else c
+
+			local i = p.size + 1
+			return function()
+				while i > 0 do
+					i -= 1
+					if i == 0 then return end
+					local entity = p.dense[i]
+
+					if world_exclude(self, entity, ids_exclude) then
+						continue
+					end
+
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+					if not ia or not ib or not ic then
+						continue
+					end
+
+					return entity, a.values[ia], b.values[ib], c.values[ic]
+				end
+			end
+		elseif n_include == 4 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+			local d = self.pools[ids[4]]
+			if not a or not b or not c or not d then return NOOP end
+
+			local p =
+				if a.size < b.size and a.size < c.size and a.size < d.size then a
+				elseif b.size < c.size and b.size < d.size then b
+				elseif c.size < d.size then c
+				else d
+
+			local i = p.size + 1
+			return function()
+				while i > 0 do
+					i -= 1
+					if i == 0 then return end
+					local entity = p.dense[i]
+
+					if world_exclude(self, entity, ids_exclude) then
+						continue
+					end
+
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+					local id = d.sparse[entity]
+					if not ia or not ib or not ic or not id then
+						continue
+					end
+
+					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
+				end
+			end
+		elseif n_include == 5 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+			local d = self.pools[ids[4]]
+			local e = self.pools[ids[5]]
+			if not a or not b or not c or not d or not e then return NOOP end
+
+			local p =
+				if a.size < b.size and a.size < c.size and a.size < d.size and a.size < e.size then a
+				elseif b.size < c.size and b.size < d.size and b.size < e.size then b
+				elseif c.size < d.size and c.size < e.size then c
+				elseif d.size < e.size then d
+				else e
+
+			local i = p.size + 1
+			return function()
+				while i > 0 do
+					i -= 1
+					if i == 0 then return end
+					local entity = p.dense[i]
+
+					if world_exclude(self, entity, ids_exclude) then
+						continue
+					end
+
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+					local id = d.sparse[entity]
+					local ie = e.sparse[entity]
+					if not ia or not ib or not ic or not id or not ie then
+						continue
+					end
+
+					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id], e.values[ie]
+				end
+			end
+		else
+			error("world_view: too many ids")
+		end
+	end
+
+	local function view_without(query: query, ...: id)
+		for _, id in { ... } do
+			table.insert(ids_exclude, id)
+		end
+
+		return query
+	end
+
+	return setmetatable({
+		without = view_without,
+	}, {
+		__iter = view_iter
+	})
+end
+
 local function world_get(self: world, entity: entity, ...: id): ...any?
 	local function fetch(id: id): any?
 		local pool = self.pools[id]
@@ -672,7 +905,7 @@ local function world_relation(self: world, cascade_deletions: boolean?)
 end
 
 local function world_create(): world
-	local top = id_cast_number(id_rest) + 1
+	local top = id_cast_number(ID_REST) + 1
 
 	return {
 		id_top = top,
@@ -696,6 +929,7 @@ local function world_create(): world
 		changed = world_changed,
 		removed = world_removed,
 		query = world_query,
+		view = world_view,
 		has = world_has,
 		get = world_get,
 		expect = world_expect,
@@ -704,9 +938,9 @@ local function world_create(): world
 end
 
 return {
-	any = id_any,
-	child_of = id_child_of,
-	rest = id_rest,
+	any = ID_ANY,
+	child_of = ID_CHILD_OF,
+	rest = ID_REST,
 
 	id_cast_number = id_cast_number,
 	id_cast_entity = id_cast_entity,
