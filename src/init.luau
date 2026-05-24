@@ -353,40 +353,6 @@ local function world_has(self: world, entity: entity, id: id): boolean
 	return pool ~= nil and pool.sparse[entity] ~= nil
 end
 
-local function world_exclude(self: world, entity: entity, ids: { id })
-	local a, b, c, d, e, ERR = ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
-
-	if a == nil then
-		return false
-	elseif b == nil then
-		return world_has(self, entity, a)
-	elseif c == nil then
-		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-	elseif d == nil then
-		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
-	elseif e == nil then
-		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
-			or world_has(self, entity, d)
-	elseif ERR == nil then
-		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
-			or world_has(self, entity, d)
-			or world_has(self, entity, e)
-	else
-		error("world_exclude: too many ids")
-	end
-end
-
 local function world_query_cached(self: world, query: query): cached_query
 	local set = sparse_set_create()
 	local counts: { [entity]: number } = {}
@@ -578,7 +544,40 @@ local function world_query(self: world, ...: id): query
 	})
 end
 
--- TODO: optimize each id case
+local function world_exclude(self: world, entity: entity, ids: { id })
+	local a, b, c, d, e, ERR = ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
+
+	if a == nil then
+		return false
+	elseif b == nil then
+		return world_has(self, entity, a)
+	elseif c == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+	elseif d == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+	elseif e == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+			or world_has(self, entity, d)
+	elseif ERR == nil then
+		return
+			world_has(self, entity, a)
+			or world_has(self, entity, b)
+			or world_has(self, entity, c)
+			or world_has(self, entity, d)
+			or world_has(self, entity, e)
+	else
+		error("world_exclude: too many ids")
+	end
+end
+
 local function world_view(self: world, ...: id): query
 	local ids = { ... }
 	local ids_exclude = {}
