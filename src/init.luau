@@ -113,7 +113,7 @@ local function pool_create<t>(): pool<t>
 	return pool
 end
 
--- queries
+-- world
 
 export type query<t... = ...any> = {
 	size: (self: query<t...>) -> number,
@@ -127,8 +127,6 @@ export type view<t... = ...any> = {
 	without: (self: view<t...>, ...entity) -> view<t...>,
 	iter: (self: view<t...>) -> () -> (entity, t...)
 }
-
--- world
 
 export type world = {
 	id_top: number,
@@ -369,11 +367,6 @@ local function world_query(self: world, ...: id): query
 		world_removed(self, id, on_entity_removed)
 	end
 
-	for _, id in ids_exclude do
-		world_added(self, id, on_entity_removed)
-		world_removed(self, id, on_entity_added)
-	end
-
 	local function query_iter(): () -> ...any
 		local i = storage.size + 1
 		if n_include == 1 then
@@ -386,6 +379,70 @@ local function world_query(self: world, ...: id): query
 				local ia = a.sparse[entity]
 
 				return entity, a.values[ia]
+			end
+		elseif n_include == 2 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+
+			return function()
+				i -= 1
+				if i == 0 then return end
+				local entity = storage.dense[i]
+				local ia = a.sparse[entity]
+				local ib = b.sparse[entity]
+
+				return entity, a.values[ia], b.values[ib]
+			end
+		elseif n_include == 3 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+
+			return function()
+				i -= 1
+				if i == 0 then return end
+				local entity = storage.dense[i]
+				local ia = a.sparse[entity]
+				local ib = b.sparse[entity]
+				local ic = c.sparse[entity]
+
+				return entity, a.values[ia], b.values[ib], c.values[ic]
+			end
+		elseif n_include == 4 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+			local d = self.pools[ids[4]]
+
+			return function()
+				i -= 1
+				if i == 0 then return end
+				local entity = storage.dense[i]
+				local ia = a.sparse[entity]
+				local ib = b.sparse[entity]
+				local ic = c.sparse[entity]
+				local id = d.sparse[entity]
+
+				return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
+			end
+		elseif n_include == 5 then
+			local a = self.pools[ids[1]]
+			local b = self.pools[ids[2]]
+			local c = self.pools[ids[3]]
+			local d = self.pools[ids[4]]
+			local e = self.pools[ids[5]]
+
+			return function()
+				i -= 1
+				if i == 0 then return end
+				local entity = storage.dense[i]
+				local ia = a.sparse[entity]
+				local ib = b.sparse[entity]
+				local ic = c.sparse[entity]
+				local id = d.sparse[entity]
+				local ie = e.sparse[entity]
+
+				return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id], e.values[ie]
 			end
 		else
 			error("world_query: too many ids")
@@ -401,6 +458,9 @@ local function world_query(self: world, ...: id): query
 			local id = select(i, ...)
 			table.insert(ids_exclude, id)
 			n_exclude += 1
+
+			world_added(self, id, on_entity_removed)
+			world_removed(self, id, on_entity_added)
 		end
 
 		return query
