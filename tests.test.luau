@@ -268,6 +268,33 @@ test.suite("world:query()", function(suite)
 
 		asserts.eq(count, 5)
 	end)
+
+	suite:case("track()", function(asserts)
+		local world = maple.world()
+		local include = world:component()
+		local sum = 0
+		local tracker = world:query(include):track()
+
+		local entity = world:entity()
+		world:set(entity, include, 60)
+
+		for e, value in tracker do
+			print(e, value)
+			sum += value
+		end
+
+		for _, value in tracker do
+			sum += value
+		end
+
+		world:set(entity, include, 7)
+
+		for _, value in tracker do
+			sum += value
+		end
+
+		asserts.eq(sum, 67)
+	end)
 end)
 
 test.case("children_count", function(asserts)

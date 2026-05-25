@@ -95,6 +95,12 @@ local function sparse_set_remove(set: sparse_set, id: id)
 	set.size -= 1
 end
 
+local function sparse_set_clear(set: sparse_set)
+	set.size = 0
+	table.clear(set.dense)
+	table.clear(set.sparse)
+end
+
 --- pools are sparse sets which can store entities and their associated data
 --- each component is allocated its own pool
 export type pool<t = any> = sparse_set & {
@@ -115,11 +121,14 @@ end
 
 -- world
 
+export type tracker<t... = ...any> = setmetatable<{}, { __iter: () -> () -> (entity, t...) }>
+
 export type query<t... = ...any> = {
 	size: (self: query<t...>) -> number,
 	without: (self: query<t...>) -> query<t...>,
-	matched: (self: query<t...>, callback: listener<(entity, t...)>) -> cleanup,
-	unmatched: (self: query<t...>, callback: listener<entity>) -> cleanup,
+	--matched: (self: query<t...>, callback: listener<(entity, t...)>) -> cleanup,
+	--unmatched: (self: query<t...>, callback: listener<entity>) -> cleanup,
+	track: (self: query<t...>) -> tracker<t...>,
 	iter: (self: query<t...>) -> () -> (entity, t...)
 }
 
@@ -217,6 +226,7 @@ local function world_set(self: world, entity: entity, id: id, value: any)
 		-- if the entity is not in the pool, add it
 		world_add(self, entity, id, value)
 		index = pool.size
+		return
 	end
 
 	if self.on_changed[id] then
@@ -337,6 +347,7 @@ local function world_query(self: world, ...: id): query
 	assert(n_include > 0, "query requires at least one id")
 
 	local on_matched: { listener<entity> } = {}
+	local on_changed: { listener<entity> } = {}
 	local on_unmatched: { listener<entity> } = {}
 
 	local function on_entity_added(entity: entity)
@@ -346,6 +357,10 @@ local function world_query(self: world, ...: id): query
 			signal_fire(on_matched, entity)
 			sparse_set_add(storage, entity)
 		end
+	end
+
+	local function on_entity_changed(entity: entity)
+		signal_fire(on_changed, entity)
 	end
 
 	local function on_entity_removed(entity: entity)
@@ -364,6 +379,7 @@ local function world_query(self: world, ...: id): query
 
 	for _, id in ids do
 		world_added(self, id, on_entity_added)
+		world_changed(self, id, on_entity_changed)
 		world_removed(self, id, on_entity_removed)
 	end
 
@@ -466,7 +482,130 @@ local function world_query(self: world, ...: id): query
 		return query
 	end
 
-	local function query_matched(query: query, callback: listener<(entity, ...any)>)
+	local function query_track(): tracker
+		local tracked = sparse_set_create()
+		local i = 0
+
+		signal_connect(on_matched, function(entity)
+			sparse_set_add(tracked, entity)
+			i += 1
+		end)
+
+		signal_connect(on_changed, function(entity)
+			sparse_set_add(tracked, entity)
+			i += 1
+		end)
+
+		signal_connect(on_unmatched, function(entity)
+			sparse_set_remove(tracked, entity)
+			i -= 1
+		end)
+
+		local function tracker_iter(): () -> ...any
+			if n_include == 1 then
+				local a = self.pools[ids[1]]
+
+				return function()
+					if i == 0 then
+						sparse_set_clear(tracked)
+						return
+					end
+
+					local entity = tracked.dense[i]
+					local ia = a.sparse[entity]
+
+					i -= 1
+					return entity, a.values[ia]
+				end
+			elseif n_include == 2 then
+				local a = self.pools[ids[1]]
+				local b = self.pools[ids[2]]
+
+				return function()
+					if i == 0 then
+						sparse_set_clear(tracked)
+						return
+					end
+
+					local entity = tracked.dense[i]
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+
+					i -= 1
+					return entity, a.values[ia], b.values[ib]
+				end
+			elseif n_include == 3 then
+				local a = self.pools[ids[1]]
+				local b = self.pools[ids[2]]
+				local c = self.pools[ids[3]]
+
+				return function()
+					if i == 0 then
+						sparse_set_clear(tracked)
+						return
+					end
+
+					local entity = tracked.dense[i]
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+
+					i -= 1
+					return entity, a.values[ia], b.values[ib], c.values[ic]
+				end
+			elseif n_include == 4 then
+				local a = self.pools[ids[1]]
+				local b = self.pools[ids[2]]
+				local c = self.pools[ids[3]]
+				local d = self.pools[ids[4]]
+
+				return function()
+					if i == 0 then
+						sparse_set_clear(tracked)
+						return
+					end
+
+					local entity = tracked.dense[i]
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+					local id = d.sparse[entity]
+
+					i -= 1
+					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
+				end
+			elseif n_include == 5 then
+				local a = self.pools[ids[1]]
+				local b = self.pools[ids[2]]
+				local c = self.pools[ids[3]]
+				local d = self.pools[ids[4]]
+				local e = self.pools[ids[5]]
+
+				return function()
+					if i == 0 then
+						sparse_set_clear(tracked)
+						return
+					end
+
+					local entity = tracked.dense[i]
+					local ia = a.sparse[entity]
+					local ib = b.sparse[entity]
+					local ic = c.sparse[entity]
+					local id = d.sparse[entity]
+					local ie = e.sparse[entity]
+
+					i -= 1
+					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id], e.values[ie]
+				end
+			else
+				error("world_query: too many ids")
+			end
+		end
+
+		return setmetatable({}, { __iter = tracker_iter })
+	end
+
+	--[[local function query_matched(query: query, callback: listener<(entity, ...any)>)
 		return signal_connect(on_matched, function(entity)
 			local values = {}
 			for i, id in ids do
@@ -482,13 +621,14 @@ local function world_query(self: world, ...: id): query
 
 	local function query_unmatched(query: query, callback: listener<entity>)
 		return signal_connect(on_unmatched, callback)
-	end
+	end--]]
 
 	return {
 		size = query_size,
 		without = query_without,
-		matched = query_matched,
-		unmatched = query_unmatched,
+		--matched = query_matched,
+		--unmatched = query_unmatched,
+		track = query_track,
 		iter = query_iter,
 	}
 end
