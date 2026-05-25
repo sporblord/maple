@@ -11,7 +11,7 @@ local health_changed = world:query(health):track()
 
 local function poison_system(dt: number)
 	for entity, hp in query_poisoned:iter() do
-		hp -= 60 * dt
+		hp -= 5
 		world:set(entity, health, hp)
 	end
 end

@@ -259,12 +259,6 @@ local function world_remove(self: world, entity: entity, id: id)
 	pool.sparse[entity] = nil
 	pool.dense[pool.size] = nil
 	pool.size -= 1
-
-	-- empty pools should be freed to save memory
-	-- this is especially important for pair components
-	if pool.size == 0 then
-		self.pools[id] = nil
-	end
 end
 
 local function world_delete(self: world, entity: entity)
@@ -486,24 +480,22 @@ local function world_query(self: world, ...: id): query
 
 	local function query_track(): tracker
 		local tracked = sparse_set_create()
-		local i = 0
 
 		signal_connect(on_matched, function(entity)
 			sparse_set_add(tracked, entity)
-			i += 1
 		end)
 
 		signal_connect(on_changed, function(entity)
 			sparse_set_add(tracked, entity)
-			i += 1
 		end)
 
 		signal_connect(on_unmatched, function(entity)
 			sparse_set_remove(tracked, entity)
-			i -= 1
 		end)
 
 		local function tracker_iter(): () -> ...any
+			local i = tracked.size
+
 			if n_include == 1 then
 				local a = self.pools[ids[1]]
 
@@ -682,8 +674,6 @@ local function world_view(self: world, ...: id): view
 
 		if n_include == 1 then
 			local a = self.pools[ids[1]]
-			if not a then return NOOP end
-
 			local i = a.size + 1
 			return function()
 				while i > 0 do
@@ -702,7 +692,6 @@ local function world_view(self: world, ...: id): view
 		elseif n_include == 2 then
 			local a = self.pools[ids[1]]
 			local b = self.pools[ids[2]]
-			if not a or not b then return NOOP end
 
 			local p =
 				if a.size < b.size then a
@@ -732,7 +721,6 @@ local function world_view(self: world, ...: id): view
 			local a = self.pools[ids[1]]
 			local b = self.pools[ids[2]]
 			local c = self.pools[ids[3]]
-			if not a or not b or not c then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size then a
@@ -765,7 +753,6 @@ local function world_view(self: world, ...: id): view
 			local b = self.pools[ids[2]]
 			local c = self.pools[ids[3]]
 			local d = self.pools[ids[4]]
-			if not a or not b or not c or not d then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size then a
@@ -801,7 +788,6 @@ local function world_view(self: world, ...: id): view
 			local c = self.pools[ids[3]]
 			local d = self.pools[ids[4]]
 			local e = self.pools[ids[5]]
-			if not a or not b or not c or not d or not e then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size and a.size < e.size then a
