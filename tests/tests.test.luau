@@ -1,9 +1,5 @@
---!strict
-local query = require("@std/syntax/query")
-local maple = require("./src")
+local maple = require("../src")
 local test = require("@std/test")
-
-local unpack_ids = unpack :: ({ maple.id }) -> ...maple.id
 
 local function world_count_components(world: maple.world)
 	local count = 0
@@ -55,7 +51,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)):iter() do
+		for entity in world:view(unpack(include)):iter() do
 			count += 1
 		end
 		asserts.eq(count, 10)
@@ -84,7 +80,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)):iter() do
+		for entity in world:view(unpack(include)):without(unpack(exclude)):iter() do
 			count += 1
 		end
 		asserts.eq(count, 5)
@@ -106,7 +102,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity, a, b in world:view(unpack_ids(include)):iter() do
+		for entity, a, b in world:view(unpack(include)):iter() do
 			asserts.neq(a, nil)
 			asserts.neq(b, nil)
 			count += 1
@@ -142,7 +138,7 @@ test.suite("world:view()", function(suite)
 		end
 
 		local count = 0
-		for entity in world:view(unpack_ids(include)):without(unpack_ids(exclude)):iter() do
+		for entity in world:view(unpack(include)):without(unpack(exclude)):iter() do
 			count += 1
 		end
 
@@ -159,7 +155,7 @@ test.suite("world:query()", function(suite)
 			table.insert(include, world:component())
 		end
 
-		local query = world:query(unpack_ids(include))
+		local query = world:query(unpack(include))
 		local count = 0
 
 		for i = 1, 10 do
@@ -187,7 +183,7 @@ test.suite("world:query()", function(suite)
 			table.insert(exclude, world:component())
 		end
 
-		local query = world:query(unpack_ids(include)):without(unpack_ids(exclude))
+		local query = world:query(unpack(include)):without(unpack(exclude))
 		local count = 0
 
 		for i = 1, 10 do
@@ -215,7 +211,7 @@ test.suite("world:query()", function(suite)
 		end
 
 		local count = 0
-		local query = world:query(unpack_ids(include))
+		local query = world:query(unpack(include))
 
 		for i = 1, 10 do
 			local entity = world:entity()
@@ -247,7 +243,7 @@ test.suite("world:query()", function(suite)
 		end
 
 		local count = 0
-		local query = world:query(unpack_ids(include)):without(unpack_ids(exclude))
+		local query = world:query(unpack(include)):without(unpack(exclude))
 
 		for i = 1, 10 do
 			local entity = world:entity()
@@ -279,7 +275,6 @@ test.suite("world:query()", function(suite)
 		world:set(entity, include, 60)
 
 		for e, value in tracker do
-			print(e, value)
 			sum += value
 		end
 

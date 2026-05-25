@@ -125,17 +125,19 @@ export type tracker<t... = ...any> = setmetatable<{}, { __iter: () -> () -> (ent
 
 export type query<t... = ...any> = {
 	size: (self: query<t...>) -> number,
-	without: (self: query<t...>) -> query<t...>,
+	without: (self: query<t...>, ...id) -> query<t...>,
 	--matched: (self: query<t...>, callback: listener<(entity, t...)>) -> cleanup,
 	--unmatched: (self: query<t...>, callback: listener<entity>) -> cleanup,
 	track: (self: query<t...>) -> tracker<t...>,
 	iter: (self: query<t...>) -> () -> (entity, t...)
 }
 
-export type view<t... = ...any> = {
+export type view<t... = ...any> = setmetatable<{
 	without: (self: view<t...>, ...entity) -> view<t...>,
 	iter: (self: view<t...>) -> () -> (entity, t...)
-}
+}, {
+	__iter: (self: view<t...>) -> () -> (entity, t...)
+}>
 
 export type world = {
 	id_top: number,
@@ -511,6 +513,7 @@ local function world_query(self: world, ...: id): query
 						return
 					end
 
+					print(i)
 					local entity = tracked.dense[i]
 					local ia = a.sparse[entity]
 
@@ -843,10 +846,12 @@ local function world_view(self: world, ...: id): view
 		return view
 	end
 
-	return {
+	return setmetatable({
 		without = view_without,
 		iter = view_iter
-	}
+	}, {
+		__iter = view_iter
+	})
 end
 
 local function world_get(self: world, entity: entity, id: id): any?
