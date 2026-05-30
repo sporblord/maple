@@ -3,6 +3,7 @@
 --!native
 -- author: sporblord
 
+local scheduler = require("@self/scheduler")
 local task = task or require("@std/task")
 
 local function NOOP() return nil :: any end
@@ -304,6 +305,7 @@ end
 -- TODO: signals should set the signal listeners table to nil on cleanup if empty
 local function world_added(self: world, id: id, callback: listener<entity, any>)
 	if not self.on_added[id] then
+		print(id)
 		self.on_added[id] = {}
 	end
 
@@ -674,6 +676,8 @@ local function world_view(self: world, ...: id): view
 
 		if n_include == 1 then
 			local a = self.pools[ids[1]]
+			if not a then return NOOP end
+
 			local i = a.size + 1
 			return function()
 				while i > 0 do
@@ -692,6 +696,7 @@ local function world_view(self: world, ...: id): view
 		elseif n_include == 2 then
 			local a = self.pools[ids[1]]
 			local b = self.pools[ids[2]]
+			if not a or not b then return NOOP end
 
 			local p =
 				if a.size < b.size then a
@@ -721,6 +726,7 @@ local function world_view(self: world, ...: id): view
 			local a = self.pools[ids[1]]
 			local b = self.pools[ids[2]]
 			local c = self.pools[ids[3]]
+			if not a or not b or not c then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size then a
@@ -753,6 +759,7 @@ local function world_view(self: world, ...: id): view
 			local b = self.pools[ids[2]]
 			local c = self.pools[ids[3]]
 			local d = self.pools[ids[4]]
+			if not a or not b or not c or not d then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size then a
@@ -788,6 +795,7 @@ local function world_view(self: world, ...: id): view
 			local c = self.pools[ids[3]]
 			local d = self.pools[ids[4]]
 			local e = self.pools[ids[5]]
+			if not a or not b or not c or not d or not e then return NOOP end
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size and a.size < e.size then a
@@ -1053,5 +1061,8 @@ return {
 	id_key = id_key,
 	id_version = id_version,
 
-	world = world_create
+	world = world_create,
+
+	-- addons & utilities
+	scheduler = scheduler
 }
