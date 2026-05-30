@@ -14,6 +14,7 @@ export type scheduler<t... = ...any> = {
 	load: (self: scheduler<t...>, system: system<t...>) -> result<{ name: string, fn: system_fn }>,
 	add: (self: scheduler<t...>, system: system<t...>) -> (),
 	run: (self: scheduler<t...>, dt: number) -> (),
+	lockstep: (self: scheduler<t...>, rate: number?) -> scheduler<t...>,
 	connect: (self: scheduler<t...>, signal: RBXScriptSignal<number>) -> (),
 }
 
