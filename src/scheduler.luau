@@ -11,10 +11,10 @@ export type scheduler<t... = ...any> = {
 	system_logs: { number },
 	rate: number?,
 
-	load: (self: scheduler<t...>, system: system<t...>) -> result<{ name: string, fn: system_fn }>,
-	add: (self: scheduler<t...>, system: system<t...>) -> (),
-	run: (self: scheduler<t...>, dt: number) -> (),
+	--load: (self: scheduler<t...>, system: system<t...>) -> result<{ name: string, fn: system_fn }>,
+	add: (self: scheduler<t...>, system: system<t...>) -> scheduler<t...>,
 	lockstep: (self: scheduler<t...>, rate: number?) -> scheduler<t...>,
+	run: (self: scheduler<t...>, dt: number) -> (),
 	connect: (self: scheduler<t...>, signal: RBXScriptSignal<number>) -> (),
 }
 
@@ -39,6 +39,8 @@ local function scheduler_create<t...>(... :t...): scheduler<t...>
 	end
 
 	local function scheduler_add(self: scheduler<t...>, system: system<t...>)
+		local name = debug.info(system, "n")
+
 		local result = scheduler_load(self, system)
 		if not result.ok then
 			return
