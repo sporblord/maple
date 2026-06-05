@@ -288,8 +288,6 @@ local function world_remove(self: world, entity: entity, id: id)
 end
 
 local function world_delete(self: world, entity: entity)
-	signal_fire(self.on_deleted, entity)
-
 	-- remove the entity from all pools
 	local pools_to_delete = {}
 	for id, pool in self.pools do
@@ -316,6 +314,8 @@ local function world_delete(self: world, entity: entity)
 
 	    self.pools[id] = nil
 	end
+
+	signal_fire(self.on_deleted, entity)
 
 	-- cleanup listeners
 	self.on_added[entity] = nil
