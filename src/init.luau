@@ -1,10 +1,8 @@
 --!strict
 --!optimize 2
 --!native
--- author: sporblord
 
-local scheduler = require("@self/scheduler")
-local task = task or require("@std/task")
+--local task = task or require("@std/task")
 
 local function NOOP() return nil :: any end
 
@@ -12,15 +10,7 @@ local function NOOP() return nil :: any end
 export type entity<t = any> = { __t: t }
 export type id<t = any> = entity<t>
 
-local ID_ENTITY_MASK = bit32.lshift(1, 26)
-
-local function id_cast_number(id: id)
-	return (id :: any) :: number
-end
-
-local function id_cast_entity(id: number)
-	return (id :: any) :: entity
-end
+local ID_ENTITY_MASK = bit32.lshift(1, 16)
 
 local function id_new(key: number, version: number)
     return key + version * ID_ENTITY_MASK
@@ -33,10 +23,6 @@ end
 local function id_version(id: number)
 	return id // ID_ENTITY_MASK
 end
-
-local ID_ANY = id_cast_entity(0)
-local ID_CHILD_OF = id_cast_entity(1)
-local ID_REST = id_cast_entity(2)
 
 -- signal utilities
 type cleanup = () -> ()
@@ -80,7 +66,7 @@ local function sparse_set_create(): sparse_set
 	}
 end
 
-local function sparse_set_add(set: sparse_set, id: id)
+local function sparse_set_insert(set: sparse_set, id: id)
 	set.size += 1
 	set.dense[set.size] = id
 	set.sparse[id] = set.size
@@ -120,16 +106,36 @@ local function pool_create<t>(): pool<t>
 	return pool
 end
 
--- world
+local function pool_insert<t>(pool: pool<t>, id: id<t>, value: t?)
+	if not pool.sparse[id] then
+		sparse_set_insert(pool, id)
+	end
 
-export type tracker<t... = ...any> = setmetatable<{}, { __iter: () -> () -> (entity, t...) }>
+	if value then
+		local index = pool.sparse[id]
+		pool.values[index] = value
+	end
+end
+
+local function pool_remove<t>(pool: pool<t>, id: id<t>)
+	-- perform a swap-remove; in order to preserve the dense array,
+	-- we move the id from the last index to the index of the id being removed.
+	local index = pool.sparse[id]
+	local entity_last = pool.dense[pool.size]
+	local value_last = pool.values[pool.size]
+	pool.dense[index] = entity_last
+	pool.values[index] = value_last
+	pool.sparse[entity_last] = index
+	pool.sparse[id] = nil
+	pool.dense[pool.size] = nil
+	pool.size -= 1
+end
+
+-- world
 
 export type query<t... = ...any> = {
 	size: (self: query<t...>) -> number,
 	without: (self: query<t...>, ...id) -> query<t...>,
-	--matched: (self: query<t...>, callback: listener<(entity, t...)>) -> cleanup,
-	--unmatched: (self: query<t...>, callback: listener<entity>) -> cleanup,
-	track: (self: query<t...>) -> tracker<t...>,
 	iter: (self: query<t...>) -> () -> (entity, t...)
 }
 
@@ -151,6 +157,8 @@ export type world = {
 
 	entity: (self: world) -> entity,
 	component: <t>(self: world) -> id<t>,
+	get: <t>(self: world, entity: entity, id: id<t>) -> t?,
+	expect: <t>(self: world, entity: entity, id: id<t>) -> t,
 	add: (self: world, entity: entity, id: id) -> (),
 	set: <t>(self: world, entity: entity, id: id<t>, value: t) -> (),
 	remove: (self: world, entity: entity, id: id) -> (),
@@ -161,8 +169,6 @@ export type world = {
 	removed: <t>(self: world, id: id<t>, listener: listener<entity>) -> cleanup,
 	has: (self: world, entity: entity, id: id) -> boolean,
 	relation: (self: world, cascade_deletions: boolean?) -> (id<entity>, id<{ entity }>),
-	get: <t>(self: world, entity: entity, id: id<t>) -> t?,
-	expect: <t>(self: world, entity: entity, id: id<t>) -> t,
 
 	query:
 		& ((world) -> query)
@@ -181,28 +187,65 @@ export type world = {
 		& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> view<a, b, c, d, e>),
 }
 
+local function world_get_pool(self: world, id: id)
+	if self.pools[id] then
+		return self.pools[id]
+	end
+
+	local pool = pool_create()
+	self.pools[id] = pool
+
+	return pool
+end
+
 local function world_entity(self: world): entity
 	local id = self.id_top
 	self.id_top += 1
 
 	if self.id_top >= ID_ENTITY_MASK then
-		self.id_top = 0
+		error("entity id overflow")
 	end
 
 	return id :: any
 end
 
 local function world_component<t>(self: world): id<t>
-	return world_entity(self)
+	local id = world_entity(self)
+	local pool = pool_create()
+	self.pools[id] = pool
+
+	return id
+end
+
+local function world_get(self: world, entity: entity, id: id): any?
+	local pool = world_get_pool(self, id)
+	if not pool then
+		return
+	end
+
+	local index = pool.sparse[entity]
+	if not index then
+		return
+	end
+
+	return pool.values[index]
+end
+
+local function world_expect(self: world, entity: entity, id: id): any
+	local pool = world_get_pool(self, id)
+	assert(pool ~= nil, `pool {id} contains no entities`)
+
+	local index = pool.sparse[entity]
+	assert(index ~= nil, `component {id} does not exist on entity {entity}`)
+
+	local value = pool.values[index]
+	assert(value ~= nil, `component {id} does not have a value for entity {entity}`)
+
+	return value
 end
 
 local function world_add(self: world, entity: entity, id: id, value: any?)
-	local pool = self.pools[id]
-	if not pool then
-		pool = pool_create()
-		self.pools[id] = pool
-	end
-
+	local pool = world_get_pool(self, id)
 	if pool.sparse[entity] then
 		return
 	end
@@ -211,19 +254,11 @@ local function world_add(self: world, entity: entity, id: id, value: any?)
 		signal_fire(self.on_added[id], entity, value)
 	end
 
-	pool.size += 1
-	pool.dense[pool.size] = entity
-	pool.values[pool.size] = value
-	pool.sparse[entity] = pool.size
+	pool_insert(pool, entity, value)
 end
 
 local function world_set(self: world, entity: entity, id: id, value: any)
-	local pool = self.pools[id]
-	if not pool then
-		pool = pool_create()
-		self.pools[id] = pool
-	end
-
+	local pool = world_get_pool(self, id)
 	local index = pool.sparse[entity]
 	if not index then
 		-- if the entity is not in the pool, add it
@@ -240,8 +275,8 @@ local function world_set(self: world, entity: entity, id: id, value: any)
 end
 
 local function world_remove(self: world, entity: entity, id: id)
-	local pool = self.pools[id]
-	if not pool or not pool.sparse[entity] then
+	local pool = world_get_pool(self, id)
+	if pool.sparse[entity] then
 		return
 	end
 
@@ -249,17 +284,7 @@ local function world_remove(self: world, entity: entity, id: id)
 		signal_fire(self.on_removed[id], entity)
 	end
 
-	-- perform a swap-remove; in order to preserve the dense array,
-	-- we move the id from the last index to the index of the id being removed.
-	local index = pool.sparse[entity]
-	local entity_last = pool.dense[pool.size]
-	local value_last = pool.values[pool.size]
-	pool.dense[index] = entity_last
-	pool.values[index] = value_last
-	pool.sparse[entity_last] = index
-	pool.sparse[entity] = nil
-	pool.dense[pool.size] = nil
-	pool.size -= 1
+	pool_remove(pool, entity)
 end
 
 local function world_delete(self: world, entity: entity)
@@ -305,7 +330,6 @@ end
 -- TODO: signals should set the signal listeners table to nil on cleanup if empty
 local function world_added(self: world, id: id, callback: listener<entity, any>)
 	if not self.on_added[id] then
-		print(id)
 		self.on_added[id] = {}
 	end
 
@@ -353,7 +377,7 @@ local function world_query(self: world, ...: id): query
 
 		if counts[entity] >= n_include and not storage.sparse[entity] then
 			signal_fire(on_matched, entity)
-			sparse_set_add(storage, entity)
+			sparse_set_insert(storage, entity)
 		end
 	end
 
@@ -384,7 +408,7 @@ local function world_query(self: world, ...: id): query
 	local function query_iter(): () -> ...any
 		local i = storage.size + 1
 		if n_include == 1 then
-			local a = self.pools[ids[1]]
+			local a = world_get_pool(self, ids[1])
 
 			return function()
 				i -= 1
@@ -395,8 +419,8 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia]
 			end
 		elseif n_include == 2 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
 
 			return function()
 				i -= 1
@@ -408,9 +432,9 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib]
 			end
 		elseif n_include == 3 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
 
 			return function()
 				i -= 1
@@ -423,10 +447,10 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib], c.values[ic]
 			end
 		elseif n_include == 4 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
-			local d = self.pools[ids[4]]
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
+			local d = world_get_pool(self, ids[4])
 
 			return function()
 				i -= 1
@@ -440,11 +464,11 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
 			end
 		elseif n_include == 5 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
-			local d = self.pools[ids[4]]
-			local e = self.pools[ids[5]]
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
+			local d = world_get_pool(self, ids[4])
+			local e = world_get_pool(self, ids[5])
 
 			return function()
 				i -= 1
@@ -480,157 +504,14 @@ local function world_query(self: world, ...: id): query
 		return query
 	end
 
-	local function query_track(): tracker
-		local tracked = sparse_set_create()
-
-		signal_connect(on_matched, function(entity)
-			sparse_set_add(tracked, entity)
-		end)
-
-		signal_connect(on_changed, function(entity)
-			sparse_set_add(tracked, entity)
-		end)
-
-		signal_connect(on_unmatched, function(entity)
-			sparse_set_remove(tracked, entity)
-		end)
-
-		local function tracker_iter(): () -> ...any
-			local i = tracked.size
-
-			if n_include == 1 then
-				local a = self.pools[ids[1]]
-
-				return function()
-					if i == 0 then
-						sparse_set_clear(tracked)
-						return
-					end
-
-					print(i)
-					local entity = tracked.dense[i]
-					local ia = a.sparse[entity]
-
-					i -= 1
-					return entity, a.values[ia]
-				end
-			elseif n_include == 2 then
-				local a = self.pools[ids[1]]
-				local b = self.pools[ids[2]]
-
-				return function()
-					if i == 0 then
-						sparse_set_clear(tracked)
-						return
-					end
-
-					local entity = tracked.dense[i]
-					local ia = a.sparse[entity]
-					local ib = b.sparse[entity]
-
-					i -= 1
-					return entity, a.values[ia], b.values[ib]
-				end
-			elseif n_include == 3 then
-				local a = self.pools[ids[1]]
-				local b = self.pools[ids[2]]
-				local c = self.pools[ids[3]]
-
-				return function()
-					if i == 0 then
-						sparse_set_clear(tracked)
-						return
-					end
-
-					local entity = tracked.dense[i]
-					local ia = a.sparse[entity]
-					local ib = b.sparse[entity]
-					local ic = c.sparse[entity]
-
-					i -= 1
-					return entity, a.values[ia], b.values[ib], c.values[ic]
-				end
-			elseif n_include == 4 then
-				local a = self.pools[ids[1]]
-				local b = self.pools[ids[2]]
-				local c = self.pools[ids[3]]
-				local d = self.pools[ids[4]]
-
-				return function()
-					if i == 0 then
-						sparse_set_clear(tracked)
-						return
-					end
-
-					local entity = tracked.dense[i]
-					local ia = a.sparse[entity]
-					local ib = b.sparse[entity]
-					local ic = c.sparse[entity]
-					local id = d.sparse[entity]
-
-					i -= 1
-					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
-				end
-			elseif n_include == 5 then
-				local a = self.pools[ids[1]]
-				local b = self.pools[ids[2]]
-				local c = self.pools[ids[3]]
-				local d = self.pools[ids[4]]
-				local e = self.pools[ids[5]]
-
-				return function()
-					if i == 0 then
-						sparse_set_clear(tracked)
-						return
-					end
-
-					local entity = tracked.dense[i]
-					local ia = a.sparse[entity]
-					local ib = b.sparse[entity]
-					local ic = c.sparse[entity]
-					local id = d.sparse[entity]
-					local ie = e.sparse[entity]
-
-					i -= 1
-					return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id], e.values[ie]
-				end
-			else
-				error("world_query: too many ids")
-			end
-		end
-
-		return setmetatable({}, { __iter = tracker_iter })
-	end
-
-	--[[local function query_matched(query: query, callback: listener<(entity, ...any)>)
-		return signal_connect(on_matched, function(entity)
-			local values = {}
-			for i, id in ids do
-				local pool = assert(self.pools[id])
-				local index = pool.sparse[entity]
-				local value = pool.values[index]
-				values[i] = value
-			end
-
-			callback(entity, unpack(values))
-		end)
-	end
-
-	local function query_unmatched(query: query, callback: listener<entity>)
-		return signal_connect(on_unmatched, callback)
-	end--]]
-
 	return {
 		size = query_size,
 		without = query_without,
-		--matched = query_matched,
-		--unmatched = query_unmatched,
-		track = query_track,
 		iter = query_iter,
 	}
 end
 
-local function world_exclude(self: world, entity: entity, ids: { id })
+local function view_exclude(self: world, entity: entity, ids: { id })
 	local a, b, c, d, e, ERR = ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
 
 	if a == nil then
@@ -660,7 +541,7 @@ local function world_exclude(self: world, entity: entity, ids: { id })
 			or world_has(self, entity, d)
 			or world_has(self, entity, e)
 	else
-		error("world_exclude: too many ids")
+		error("view_exclude: too many ids")
 	end
 end
 
@@ -669,15 +550,11 @@ local function world_view(self: world, ...: id): view
 	local ids_exclude = {}
 
 	local function view_iter(): () -> ...any
-		--	local i = pivot_size + 1
-		--local pivot = self.pools[pivot_id]
 		local n_include = #ids
 		local n_exclude = #ids_exclude
 
 		if n_include == 1 then
-			local a = self.pools[ids[1]]
-			if not a then return NOOP end
-
+			local a = world_get_pool(self, ids[1])
 			local i = a.size + 1
 			return function()
 				while i > 0 do
@@ -685,7 +562,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = a.dense[i]
 
-					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -694,9 +571,8 @@ local function world_view(self: world, ...: id): view
 			end
 
 		elseif n_include == 2 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			if not a or not b then return NOOP end
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
 
 			local p =
 				if a.size < b.size then a
@@ -709,7 +585,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -723,10 +599,9 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 3 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
-			if not a or not b or not c then return NOOP end
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
 
 			local p =
 				if a.size < b.size and a.size < c.size then a
@@ -740,7 +615,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -755,12 +630,10 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 4 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
-			local d = self.pools[ids[4]]
-			if not a or not b or not c or not d then return NOOP end
-
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
+			local d = world_get_pool(self, ids[4])
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size then a
 				elseif b.size < c.size and b.size < d.size then b
@@ -774,7 +647,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -790,12 +663,11 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 5 then
-			local a = self.pools[ids[1]]
-			local b = self.pools[ids[2]]
-			local c = self.pools[ids[3]]
-			local d = self.pools[ids[4]]
-			local e = self.pools[ids[5]]
-			if not a or not b or not c or not d or not e then return NOOP end
+			local a = world_get_pool(self, ids[1])
+			local b = world_get_pool(self, ids[2])
+			local c = world_get_pool(self, ids[3])
+			local d = world_get_pool(self, ids[4])
+			local e = world_get_pool(self, ids[5])
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size and a.size < e.size then a
@@ -811,7 +683,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and world_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -847,105 +719,6 @@ local function world_view(self: world, ...: id): view
 		__iter = view_iter
 	})
 end
-
-local function world_get(self: world, entity: entity, id: id): any?
-	local pool = self.pools[id]
-	if not pool then
-		return
-	end
-
-	local index = pool.sparse[entity]
-	if not index then
-		return
-	end
-
-	return pool.values[index]
-end
-
-local function world_expect(self: world, entity: entity, id: id): any
-	local pool = self.pools[id]
-	assert(pool ~= nil, `pool {id} contains no entities`)
-
-	local index = pool.sparse[entity]
-	assert(index ~= nil, `component {id} does not exist on entity {entity}`)
-
-	local value = pool.values[index]
-	assert(value ~= nil, `component {id} does not have a value for entity {entity}`)
-
-	return value
-end
-
---[[local function world_get(self: world, entity: entity, ...: id): ...any?
-	local function fetch(id: id): any?
-		local pool = self.pools[id]
-		if not pool then
-			return
-		end
-
-		local index = pool.sparse[entity]
-		if not index then
-			return
-		end
-
-		return pool.values[index]
-	end
-
-	local a, b, c, d, e, ERR = ...
-	if a == nil then
-		return
-	elseif b == nil then
-		return fetch(a)
-	elseif c == nil then
-		local va, vb = fetch(a), fetch(b)
-		return va, vb
-	elseif d == nil then
-		local va, vb, vc = fetch(a), fetch(b), fetch(c)
-		return va, vb, vc
-	elseif e == nil then
-		local va, vb, vc, vd = fetch(a), fetch(b), fetch(c), fetch(d)
-		return va, vb, vc, vd
-	elseif ERR == nil then
-		local va, vb, vc, vd, ve = fetch(a), fetch(b), fetch(c), fetch(d), fetch(e)
-		return va, vb, vc, vd, ve
-	else
-		error("world:get does not support more than 5 components")
-	end
-end
-
-local function world_expect(self: world, entity: entity, ...: id): ...any
-	local function fetch(id: id): any?
-		local pool = self.pools[id]
-		assert(pool ~= nil, `pool {id} contains no entities`)
-
-		local index = pool.sparse[entity]
-		assert(index ~= nil, `component {id} does not exist on entity {entity}`)
-
-		local value = pool.values[index]
-		assert(value ~= nil, `component {id} does not have a value for entity {entity}`)
-		return value
-	end
-
-	local a, b, c, d, e, ERR = ...
-	if a == nil then
-		return
-	elseif b == nil then
-		return fetch(a)
-	elseif c == nil then
-		local va, vb = fetch(a), fetch(b)
-		return va, vb
-	elseif d == nil then
-		local va, vb, vc = fetch(a), fetch(b), fetch(c)
-		return va, vb, vc
-	elseif e == nil then
-		local va, vb, vc, vd = fetch(a), fetch(b), fetch(c), fetch(d)
-		return va, vb, vc, vd
-	elseif ERR == nil then
-		local va, vb, vc, vd, ve = fetch(a), fetch(b), fetch(c), fetch(d), fetch(e)
-		return va, vb, vc, vd, ve
-	else
-		error("world:expect does not support more than 5 components")
-	end
-end--]]
 
 -- relationships
 -- for reference: subject is the entity with the relation component
@@ -1019,10 +792,8 @@ local function world_relation(self: world, cascade_deletions: boolean?)
 end
 
 local function world_create(): world
-	local top = id_cast_number(ID_REST) + 1
-
 	return {
-		id_top = top,
+		id_top = 0,
 		pools = {},
 		on_added = {},
 		on_changed = {},
@@ -1052,17 +823,8 @@ local function world_create(): world
 end
 
 return {
-	any = ID_ANY,
-	child_of = ID_CHILD_OF,
-	rest = ID_REST,
-
-	id_cast_number = id_cast_number,
-	id_cast_entity = id_cast_entity,
 	id_key = id_key,
 	id_version = id_version,
 
 	world = world_create,
-
-	-- addons & utilities
-	scheduler = scheduler
 }
