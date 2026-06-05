@@ -4,22 +4,16 @@ layout: home
 
 hero:
   name: "Maple"
-  text: "Sparse-set ECS for Luau"
-  tagline: My great project tagline
+  tagline: Sparse-set ECS for Luau
   actions:
     - theme: brand
-      text: Markdown Examples
-      link: /markdown-examples
+      text: Tutorials
+      link: /tutorials
     - theme: alt
-      text: API Examples
-      link: /api-examples
+      text: API
+      link: /api
 
 features:
-  - title: Feature A
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature B
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature C
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
+  - title: Sparse Sets
+    details: A simple data structure which allows for fast iteration, lookup, insertion and deletion.
 ---
-
