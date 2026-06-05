@@ -4,7 +4,7 @@ import { defineConfig } from "vitepress";
 export default defineConfig({
 	title: "Maple",
 	description: "Sparse-set ECS for Luau",
-	base: "/maple",
+	base: "/maple/",
 	themeConfig: {
 		// https://vitepress.dev/reference/default-theme-config
 		nav: [
