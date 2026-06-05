@@ -40,8 +40,8 @@ world:add(player, poisoned) -- using world:add treats the component like a tag
 
 To fetch a component on a specific entity, you can use either `get` or `expect` as such:
 ```luau
-local health = world:get(player, health) -- returns nil if health is not present
-local health = world:expect(player, health) -- errors if health is not present
+local hp = world:get(player, health) -- returns nil if health is not present
+local hp = world:expect(player, health) -- errors if health is not present
 
 local has_health = world:has(player, health) -- returns true if health is present
 ```
