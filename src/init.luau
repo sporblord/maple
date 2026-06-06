@@ -279,7 +279,7 @@ end
 
 local function world_remove(self: world, entity: entity, id: id)
 	local pool = world_get_pool(self, id)
-	if pool.sparse[entity] then
+	if not pool.sparse[entity] then
 		return
 	end
 
