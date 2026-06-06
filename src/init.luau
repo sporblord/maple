@@ -10,10 +10,11 @@ local function NOOP() return nil :: any end
 export type entity<t = any> = { __t: t }
 export type id<t = any> = entity<t>
 
-local ID_ENTITY_MASK = bit32.lshift(1, 16)
+local ID_ENTITY_MASK = 2^32
+local ID_MAX = ID_ENTITY_MASK - 1
 
 local function id_new(key: number, version: number)
-    return key + version * ID_ENTITY_MASK
+	return key + (version * ID_ENTITY_MASK)
 end
 
 local function id_key(id: number)
@@ -198,11 +199,12 @@ local function world_get_pool(self: world, id: id)
 	return pool
 end
 
+-- TODO: key/pair this
 local function world_entity(self: world): entity
 	local id = self.id_top
 	self.id_top += 1
 
-	if self.id_top >= ID_ENTITY_MASK then
+	if self.id_top >= ID_MAX then
 		error("entity id overflow")
 	end
 
@@ -823,8 +825,7 @@ local function world_create(): world
 end
 
 return {
-	id_key = id_key,
-	id_version = id_version,
+	ID_MAX = ID_MAX,
 
 	world = world_create,
 }
