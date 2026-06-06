@@ -10,19 +10,21 @@ local function NOOP() return nil :: any end
 export type entity<t = any> = { __t: t }
 export type id<t = any> = entity<t>
 
-local ID_ENTITY_MASK = 2^32
-local ID_MAX = ID_ENTITY_MASK - 1
+local ID_KEY_MASK = 2^26
+local ID_KEY_MAX = ID_KEY_MASK - 1
+
+local ID_MAX = ID_KEY_MAX
 
 local function id_new(key: number, version: number)
-	return key + (version * ID_ENTITY_MASK)
+	return key + (version * ID_KEY_MASK)
 end
 
 local function id_key(id: number)
-	return id % ID_ENTITY_MASK
+	return id % ID_KEY_MASK
 end
 
 local function id_version(id: number)
-	return id // ID_ENTITY_MASK
+	return id // ID_KEY_MASK
 end
 
 -- signal utilities
@@ -202,12 +204,11 @@ end
 -- TODO: key/pair this
 local function world_entity(self: world): entity
 	local id = self.id_top
-	self.id_top += 1
-
-	if self.id_top >= ID_MAX then
+	if id >= ID_MAX then
 		error("entity id overflow")
 	end
 
+	self.id_top += 1
 	return id :: any
 end
 
