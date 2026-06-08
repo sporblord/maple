@@ -114,7 +114,7 @@ local function pool_insert<t>(pool: pool<t>, id: id<t>, value: t?)
 		sparse_set_insert(pool, id)
 	end
 
-	if value then
+	if value ~= nil then
 		local index = pool.sparse[id]
 		pool.values[index] = value
 	end
@@ -136,11 +136,13 @@ end
 
 -- world
 
-export type query<t... = ...any> = {
+export type query<t... = ...any> = setmetatable<{
 	size: (self: query<t...>) -> number,
 	without: (self: query<t...>, ...id) -> query<t...>,
 	iter: (self: query<t...>) -> () -> (entity, t...)
-}
+}, {
+	__iter: (self: query<t...>) -> () -> (entity, t...)
+}>
 
 export type view<t... = ...any> = setmetatable<{
 	without: (self: view<t...>, ...entity) -> view<t...>,
@@ -167,8 +169,8 @@ export type world = {
 	remove: (self: world, entity: entity, id: id) -> (),
 	delete: (self: world, entity: entity) -> (),
 	deleted: (self: world, callback: listener<entity>) -> cleanup,
-	added: <t>(self: world, id: id<t>, listener: listener<entity, t>) -> cleanup,
-	changed: <t>(self: world, id: id<t>, listener: listener<entity, t>) -> cleanup,
+	added: <t>(self: world, id: id<t>, listener: listener<(entity, t)>) -> cleanup,
+	changed: <t>(self: world, id: id<t>, listener: listener<(entity, t)>) -> cleanup,
 	removed: <t>(self: world, id: id<t>, listener: listener<entity>) -> cleanup,
 	has: (self: world, entity: entity, id: id) -> boolean,
 	relation: (self: world, cascade_deletions: boolean?) -> (id<entity>, id<{ entity }>),
@@ -292,30 +294,22 @@ end
 
 local function world_delete(self: world, entity: entity)
 	-- remove the entity from all pools
-	local pools_to_delete = {}
 	for id, pool in self.pools do
 		if pool.sparse[entity] then
 			world_remove(self, entity, id)
 		end
 	end
 
-	for i = #pools_to_delete, 1, -1 do
-	    local id = pools_to_delete[i]
-	    local pool = self.pools[id]
-	    if pool == nil then continue end
+	-- if the entity is a pool, remove all its entities
+	local pool = self.pools[entity]
+	if pool then
+		for i = #pool.dense, 1, -1 do
+			if pool.dense[i] == entity then
+				continue
+			end
 
-		-- we don't need to swap-remove entities as the entire pool will be deleted
-		-- only need to fire signals
-	    if self.on_removed[id] then
-	        for i = 1, pool.size do
-	            local e = pool.dense[i]
-	            if e ~= entity then
-	                signal_fire(self.on_removed[id], e)
-	            end
-	        end
-	    end
-
-	    self.pools[id] = nil
+			world_remove(self, pool.dense[i], entity)
+		end
 	end
 
 	signal_fire(self.on_deleted, entity)
@@ -507,11 +501,13 @@ local function world_query(self: world, ...: id): query
 		return query
 	end
 
-	return {
+	return setmetatable({
 		size = query_size,
 		without = query_without,
 		iter = query_iter,
-	}
+	}, {
+		__iter = query_iter,
+	})
 end
 
 local function view_exclude(self: world, entity: entity, ids: { id })
@@ -801,9 +797,6 @@ local function world_create(): world
 		on_added = {},
 		on_changed = {},
 		on_removed = {},
-		on_pair_added = {},
-		on_pair_changed = {},
-		on_pair_removed = {},
 		on_deleted = {},
 
 		entity = world_entity,
