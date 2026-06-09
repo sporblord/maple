@@ -553,8 +553,8 @@ local function VIEW_EXCLUDE(self: World, entity: Entity, ids: { Id })
 	elseif e == nil then
 		return
 			WORLD_HAS(self, entity, a)
+			or WORLD_HAS(self, entity, b)
 			or WORLD_HAS(self, entity, c)
-			or WORLD_HAS(self, entity, d)
 	elseif ERR == nil then
 		return
 			WORLD_HAS(self, entity, a)
