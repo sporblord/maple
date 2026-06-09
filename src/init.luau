@@ -6,10 +6,11 @@
 export type Entity<T = any> = { __T: T }
 export type Id<T = any> = Entity<T>
 
-local ID_KEY_MASK = 2^26
+local ID_KEY_MASK = 2^16
 local ID_KEY_MAX = ID_KEY_MASK - 1
+local ID_VERSION_MAX = 2^16
 
-local ID_MAX = ID_KEY_MAX
+local ID_MAX = (ID_KEY_MAX * ID_VERSION_MAX) - 1
 
 local function ID_CREATE(key: number, version: number)
 	return key + (version * ID_KEY_MASK)
@@ -146,9 +147,11 @@ export type View<t... = ...any> = setmetatable<{
 }>
 
 export type World = {
-	id_top: number,
-	pools: { [Id]: Pool },
+	keyTop: number,
+	keysFree: { number },
+	versions: { [number]: number },
 
+	pools: { [Id]: Pool },
 	on_added: { [Id]: { Listener<Entity, any> } },
 	on_changed: { [Id]: { Listener<Entity, any> } },
 	on_removed: { [Id]: { Listener<Entity> } },
@@ -200,13 +203,20 @@ end
 
 -- TODO: key/pair this
 local function WORLD_ENTITY(self: World): Entity
-	local id = self.id_top
-	if id >= ID_MAX then
-		error("entity id overflow")
+	local key
+	if self.keysFree[1] == nil then
+		key = self.keyTop
+		self.keyTop += 1
+	else
+		local size = #self.keysFree
+		key = self.keysFree[size]
+		self.keysFree[size] = nil
 	end
 
-	self.id_top += 1
-	return id :: any
+	assert(key <= ID_KEY_MAX, `entity key overflow`)
+
+	local version = self.versions[key] or 0
+	return ID_CREATE(key, version) :: any
 end
 
 local function WORLD_COMPONENT<t>(self: World): Id<t>
@@ -305,6 +315,17 @@ local function WORLD_DELETE(self: World, entity: Entity)
 			WORLD_REMOVE(self, pool.dense[i], entity)
 		end
 	end
+
+	-- delete the entity
+	local key = ID_KEY(entity :: any)
+	local version = self.versions[key] or 0
+	if version >= ID_VERSION_MAX then
+		self.versions[key] = 0
+	else
+		self.versions[key] = version + 1
+	end
+
+	table.insert(self.keysFree, key)
 
 	SIGNAL_FIRE(self.on_deleted, entity)
 
@@ -799,7 +820,10 @@ end
 
 local function WORLD_NEW(): World
 	return {
-		id_top = 0,
+		keyTop = 0,
+		keysFree = {},
+		versions = {},
+
 		pools = {},
 		on_added = {},
 		on_changed = {},
@@ -826,7 +850,8 @@ local function WORLD_NEW(): World
 end
 
 return {
-	ID_MAX = ID_MAX,
+	ID_KEY = ID_KEY,
+	ID_VERSION = ID_VERSION,
 
 	World = WORLD_NEW,
 }

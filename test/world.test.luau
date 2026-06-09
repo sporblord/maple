@@ -5,6 +5,14 @@ local Maple = require("../src")
 type Entity = Maple.Entity
 type Id = Maple.Id
 
+local function ID_KEY(id: Id)
+	return Maple.ID_KEY(id :: any)
+end
+
+local function ID_VERSION(id: Id)
+	return Maple.ID_VERSION(id :: any)
+end
+
 -- how many entities to test with
 local N = 1e3
 
@@ -22,7 +30,7 @@ local function generate()
 	return world, ids
 end
 
-local function generate_entities(world: Maple.World, count: number, callback: (Entity) -> ()?)
+local function generateEntities(world: Maple.World, count: number, callback: (Entity) -> ()?)
 	local entities = {}
 	for i = 1, count do
 		local entity = world:Entity()
@@ -48,13 +56,27 @@ test.suite("world:Entity()", function(suite)
 		end
 	end)
 
-	suite:case("Reusing keys produces unique IDs", function()
-		-- TODO: implement once we have key/generation bits
+	suite:case("Reusing keys produces unique IDs", function(asserts)
+		local world = Maple.World()
+
+		local e1 = world:Entity()
+		asserts.eq(ID_KEY(e1), 0)
+		asserts.eq(ID_VERSION(e1), 0)
+
+		world:Delete(e1)
+
+		local e2 = world:Entity()
+		asserts.eq(ID_KEY(e2), 0)
+		asserts.eq(ID_VERSION(e2), 1)
+
+		local e3 = world:Entity()
+		asserts.eq(ID_KEY(e3), 1)
+		asserts.eq(ID_VERSION(e3), 0)
 	end)
 
-	suite:case("Entity limit", function(asserts)
+	suite:case("Active entity limit", function(asserts)
 		local world = Maple.World()
-		for i = 1, Maple.ID_MAX do
+		for i = 1, 2^16 do
 			world:Entity()
 		end
 
