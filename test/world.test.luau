@@ -78,8 +78,6 @@ test.suite("world:Entity()", function(suite)
 		local e4 = world:Entity()
 		asserts.eq(ID_KEY(e4), 0)
 		asserts.eq(ID_VERSION(e4), 2)
-
-		print(e4)
 	end)
 
 	suite:case("Active entity limit", function(asserts)
@@ -160,6 +158,21 @@ test.suite("world:Component()", function(suite)
 	end)
 end)
 
-test.suite("world:Delete()", function(suite)
+test.case("world:Exists", function(asserts)
+	local world = Maple.World()
+
+	local e1 = world:Entity()
+	asserts.eq(world:Exists(e1), true)
+	world:Delete(e1)
+	asserts.eq(world:Exists(e1), false)
+
+	local e2 = world:Entity()
+	asserts.eq(world:Exists(e1), false)
+	asserts.eq(world:Exists(e2), true)
+	world:Delete(e2)
+	asserts.eq(world:Exists(e2), false)
+end)
+
+test.case("world:Delete()", function(suite)
 
 end)

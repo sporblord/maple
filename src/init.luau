@@ -159,6 +159,7 @@ export type World = {
 
 	Entity: (self: World) -> Entity,
 	Component: <T>(self: World) -> Id<T>,
+	Exists: (self: World, id: Id) -> boolean,
 	Get: <T>(self: World, entity: Entity, id: Id<T>) -> T?,
 	Expect: <T>(self: World, entity: Entity, id: Id<T>) -> T,
 	Add: (self: World, entity: Entity, id: Id) -> (),
@@ -216,6 +217,8 @@ local function WORLD_ENTITY(self: World): Entity
 	assert(key <= ID_KEY_MAX, `entity key overflow`)
 
 	local version = self.versions[key] or 0
+	self.versions[key] = version
+
 	return ID_CREATE(key, version) :: any
 end
 
@@ -225,6 +228,12 @@ local function WORLD_COMPONENT<t>(self: World): Id<t>
 	self.pools[id] = pool
 
 	return id
+end
+
+local function WORLD_EXISTS(self: World, id: Id)
+	local id: number = id :: any
+	local key = ID_KEY(id)
+	return self.versions[key] == ID_VERSION(id)
 end
 
 local function WORLD_GET(self: World, entity: Entity, id: Id): any?
@@ -334,6 +343,7 @@ local function WORLD_DELETE(self: World, entity: Entity)
 	self.on_changed[entity] = nil
 	self.on_removed[entity] = nil
 end
+
 
 local function WORLD_DELETED(self: World, callback: Listener<Id>)
 	return SIGNAL_CONNECT(self.on_deleted, callback)
@@ -832,6 +842,7 @@ local function WORLD_NEW(): World
 
 		Entity = WORLD_ENTITY,
 		Component = WORLD_COMPONENT,
+		Exists = WORLD_EXISTS,
 		Add = WORLD_ADD,
 		Set = WORLD_SET,
 		Remove = WORLD_REMOVE,
