@@ -1,28 +1,31 @@
 --!strict
 local test = require("@std/test")
-local maple = require("../src")
+
+local Maple = require("../src")
+type Entity = Maple.Entity
+type Id = Maple.Id
 
 -- how many entities to test with
 local N = 1e3
 
 local function generate()
-	local world = maple.world()
+	local world = Maple.World()
 
-	local id_a = world:component()
-	local id_b = world:component()
-	local id_c = world:component()
-	local id_d = world:component()
-	local id_e = world:component()
+	local ID_A = world:Component()
+	local ID_B = world:Component()
+	local ID_C = world:Component()
+	local ID_D = world:Component()
+	local ID_E = world:Component()
 
-	local ids = { id_a, id_b, id_c, id_d, id_e }
+	local ids = { ID_A, ID_B, ID_C, ID_D, ID_E }
 
 	return world, ids
 end
 
-local function generate_entities(world: maple.world, count: number, callback: (maple.entity) -> ()?)
+local function generate_entities(world: Maple.World, count: number, callback: (Entity) -> ()?)
 	local entities = {}
 	for i = 1, count do
-		local entity = world:entity()
+		local entity = world:Entity()
 		if callback then
 			callback(entity)
 		end
@@ -33,100 +36,100 @@ local function generate_entities(world: maple.world, count: number, callback: (m
 	return entities
 end
 
-test.suite("world:entity()", function(suite)
-	suite:case("new entities unique", function()
-		local world = maple.world()
+test.suite("world:Entity()", function(suite)
+	suite:case("New entities are unique", function()
+		local world = Maple.World()
 		local seen = {}
 
 		for i = 1, N do
-			local entity = world:entity()
+			local entity = world:Entity()
 			assert(not seen[entity], `entity {entity} is not unique`)
 			seen[entity] = true
 		end
 	end)
 
-	suite:case("reusing keys produce unique ids", function()
+	suite:case("Reusing keys produces unique IDs", function()
 		-- TODO: implement once we have key/generation bits
 	end)
 
-	suite:case("entity limit", function(asserts)
-		local world = maple.world()
-		for i = 1, maple.ID_MAX do
-			world:entity()
+	suite:case("Entity limit", function(asserts)
+		local world = Maple.World()
+		for i = 1, Maple.ID_MAX do
+			world:Entity()
 		end
 
 		asserts.throws(function()
-			world:entity()
+			world:Entity()
 		end)
 	end)
 end)
 
-test.suite("world:component()", function(suite)
-	suite:case("create pool", function(asserts)
-		local world = maple.world()
-		local id = world:component()
+test.suite("world:Component()", function(suite)
+	suite:case("Create pool", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
 
 		asserts.neq(world.pools[id], nil)
 		asserts.eq(world.pools[id].size, 0)
 	end)
 
-	suite:case("world:add()", function(asserts)
-		local world = maple.world()
-		local id = world:component()
+	suite:case("world:Add()", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
 		local pool = world.pools[id]
-		local entity = world:entity()
+		local entity = world:Entity()
 
-		world:add(entity, id)
+		world:Add(entity, id)
 		asserts.eq(pool.size, 1)
 		asserts.eq(pool.dense[1], entity)
 		asserts.eq(pool.sparse[entity], 1)
 	end)
 
-	suite:case("world:set()", function(asserts)
-		local world = maple.world()
-		local id = world:component()
+	suite:case("world:Set()", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
 		local pool = world.pools[id]
-		local entity = world:entity()
+		local entity = world:Entity()
 
-		world:set(entity, id, 67)
+		world:Set(entity, id, 67)
 		asserts.eq(pool.values[1], 67)
 	end)
 
-	suite:case("world:has()", function(asserts)
-		local world = maple.world()
-		local id = world:component()
-		local entity = world:entity()
+	suite:case("world:Has()", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
+		local entity = world:Entity()
 
-		world:add(entity, id)
-		asserts.eq(world:has(entity, id), true)
-		world:remove(entity, id)
-		asserts.eq(world:has(entity, id), false)
+		world:Add(entity, id)
+		asserts.eq(world:Has(entity, id), true)
+		world:Remove(entity, id)
+		asserts.eq(world:Has(entity, id), false)
 	end)
 
-	suite:case("world:get()", function(asserts)
-		local world = maple.world()
-		local id = world:component()
-		local entity = world:entity()
+	suite:case("world:Get()", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
+		local entity = world:Entity()
 
-		world:set(entity, id, "test")
-		asserts.eq(world:get(entity, id), "test")
+		world:Set(entity, id, "test")
+		asserts.eq(world:Get(entity, id), "test")
 	end)
 
-	suite:case("world:expect()", function(asserts)
-		local world = maple.world()
-		local id = world:component()
-		local entity = world:entity()
+	suite:case("world:Expect()", function(asserts)
+		local world = Maple.World()
+		local id = world:Component()
+		local entity = world:Entity()
 
-		world:set(entity, id, "test")
-		asserts.eq(world:expect(entity, id), "test")
-		world:remove(entity, id)
+		world:Set(entity, id, "test")
+		asserts.eq(world:Expect(entity, id), "test")
+		world:Remove(entity, id)
 
 		asserts.throws(function()
-			world:expect(entity, id)
+			world:Expect(entity, id)
 		end)
 	end)
 end)
 
-test.suite("world:delete()", function(suite)
+test.suite("world:Delete()", function(suite)
 
 end)
