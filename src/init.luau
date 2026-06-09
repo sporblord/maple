@@ -2,42 +2,38 @@
 --!optimize 2
 --!native
 
---local task = task or require("@std/task")
-
-local function NOOP() return nil :: any end
-
--- ids
-export type entity<t = any> = { __t: t }
-export type id<t = any> = entity<t>
+-- Entity IDs
+export type Entity<T = any> = { __T: T }
+export type Id<T = any> = Entity<T>
 
 local ID_KEY_MASK = 2^26
 local ID_KEY_MAX = ID_KEY_MASK - 1
 
 local ID_MAX = ID_KEY_MAX
 
-local function id_new(key: number, version: number)
+local function ID_CREATE(key: number, version: number)
 	return key + (version * ID_KEY_MASK)
 end
 
-local function id_key(id: number)
+local function ID_KEY(id: number)
 	return id % ID_KEY_MASK
 end
 
-local function id_version(id: number)
+local function ID_VERSION(id: number)
 	return id // ID_KEY_MASK
 end
 
 -- signal utilities
-type cleanup = () -> ()
-type listener<t...> = (t...) -> ()
+type Cleanup = () -> ()
+type Listener<T...> = (T...) -> ()
 
-local function signal_fire<t...>(listeners: { listener<t...> }, ...: t...)
+local function SIGNAL_FIRE<T...>(listeners: { Listener<T...> }, ...: T...)
 	for _, listener in listeners do
 		task.spawn(listener, ...)
 	end
 end
 
-local function signal_connect<t...>(listeners: { listener<t...> }, callback: (t...) -> ()): cleanup
+local function SIGNAL_CONNECT<T...>(listeners: { Listener<T...> }, callback: (T...) -> ()): Cleanup
 	table.insert(listeners, callback)
 
 	return function()
@@ -48,20 +44,20 @@ local function signal_connect<t...>(listeners: { listener<t...> }, callback: (t.
 	end
 end
 
--- sparse sets are a simple data structure which allow for o(1) addition, lookup, and removal
+-- Sparse sets are a simple data structure which allow for o(1) addition, lookup, and removal
 -- while maintaining a dense array for cache-efficient iteration.
-export type sparse_set = {
+export type SparseSet = {
 	-- how many ids are currently in the set
 	size: number,
 
 	-- a contiguous array of ids
-	dense: { id },
+	dense: { Id },
 
 	-- maps ids to their index in the dense array
-	sparse: { [id]: number },
+	sparse: { [Id]: number },
 }
 
-local function sparse_set_create(): sparse_set
+local function SPARSE_SET_CREATE(): SparseSet
 	return {
 		size = 0,
 		dense = {},
@@ -69,13 +65,13 @@ local function sparse_set_create(): sparse_set
 	}
 end
 
-local function sparse_set_insert(set: sparse_set, id: id)
+local function SPARSE_SET_INSERT(set: SparseSet, id: Id)
 	set.size += 1
 	set.dense[set.size] = id
 	set.sparse[id] = set.size
 end
 
-local function sparse_set_remove(set: sparse_set, id: id)
+local function SPARSE_SET_REMOVE(set: SparseSet, id: Id)
 	local index = set.sparse[id]
 	local last = set.dense[set.size]
 	set.dense[index] = last
@@ -85,7 +81,7 @@ local function sparse_set_remove(set: sparse_set, id: id)
 	set.size -= 1
 end
 
-local function sparse_set_clear(set: sparse_set)
+local function SPARSE_SET_CLEAR(set: SparseSet)
 	set.size = 0
 	table.clear(set.dense)
 	table.clear(set.sparse)
@@ -93,13 +89,13 @@ end
 
 --- pools are sparse sets which can store entities and their associated data
 --- each component is allocated its own pool
-export type pool<t = any> = sparse_set & {
+export type Pool<T = any> = SparseSet & {
 	--- associated data, indices match the dense array
-	values: { t },
+	values: { T },
 }
 
-local function pool_create<t>(): pool<t>
-	local pool: pool<t> = {
+local function POOL_CREATE<T>(): Pool<T>
+	local pool: Pool<T> = {
 		size = 0,
 		dense = {},
 		values = {},
@@ -109,9 +105,9 @@ local function pool_create<t>(): pool<t>
 	return pool
 end
 
-local function pool_insert<t>(pool: pool<t>, id: id<t>, value: t?)
+local function POOL_INSERT<T>(pool: Pool<T>, id: Id<T>, value: T?)
 	if not pool.sparse[id] then
-		sparse_set_insert(pool, id)
+		SPARSE_SET_INSERT(pool, id)
 	end
 
 	if value ~= nil then
@@ -120,7 +116,7 @@ local function pool_insert<t>(pool: pool<t>, id: id<t>, value: t?)
 	end
 end
 
-local function pool_remove<t>(pool: pool<t>, id: id<t>)
+local function POOL_REMOVE<T>(pool: Pool<T>, id: Id<T>)
 	-- perform a swap-remove; in order to preserve the dense array,
 	-- we move the id from the last index to the index of the id being removed.
 	local index = pool.sparse[id]
@@ -136,75 +132,74 @@ end
 
 -- world
 
-export type query<t... = ...any> = setmetatable<{
-	size: (self: query<t...>) -> number,
-	without: (self: query<t...>, ...id) -> query<t...>,
-	iter: (self: query<t...>) -> () -> (entity, t...)
+export type Query<t... = ...any> = setmetatable<{
+	Size: (self: Query<t...>) -> number,
+	Without: (self: Query<t...>, ...Id) -> Query<t...>,
 }, {
-	__iter: (self: query<t...>) -> () -> (entity, t...)
+	__iter: (self: Query<t...>) -> () -> (Entity, t...)
 }>
 
-export type view<t... = ...any> = setmetatable<{
-	without: (self: view<t...>, ...entity) -> view<t...>,
-	iter: (self: view<t...>) -> () -> (entity, t...)
+export type View<t... = ...any> = setmetatable<{
+	Without: (self: View<t...>, ...Entity) -> View<t...>,
 }, {
-	__iter: (self: view<t...>) -> () -> (entity, t...)
+	__iter: (self: View<t...>) -> () -> (Entity, t...)
 }>
 
-export type world = {
+export type World = {
 	id_top: number,
-	pools: { [id]: pool },
+	pools: { [Id]: Pool },
 
-	on_added: { [id]: { listener<entity, any> } },
-	on_changed: { [id]: { listener<entity, any> } },
-	on_removed: { [id]: { listener<entity> } },
-	on_deleted: { listener<entity> },
+	on_added: { [Id]: { Listener<Entity, any> } },
+	on_changed: { [Id]: { Listener<Entity, any> } },
+	on_removed: { [Id]: { Listener<Entity> } },
+	on_deleted: { Listener<Entity> },
 
-	entity: (self: world) -> entity,
-	component: <t>(self: world) -> id<t>,
-	get: <t>(self: world, entity: entity, id: id<t>) -> t?,
-	expect: <t>(self: world, entity: entity, id: id<t>) -> t,
-	add: (self: world, entity: entity, id: id) -> (),
-	set: <t>(self: world, entity: entity, id: id<t>, value: t) -> (),
-	remove: (self: world, entity: entity, id: id) -> (),
-	delete: (self: world, entity: entity) -> (),
-	deleted: (self: world, callback: listener<entity>) -> cleanup,
-	added: <t>(self: world, id: id<t>, listener: listener<(entity, t)>) -> cleanup,
-	changed: <t>(self: world, id: id<t>, listener: listener<(entity, t)>) -> cleanup,
-	removed: <t>(self: world, id: id<t>, listener: listener<entity>) -> cleanup,
-	has: (self: world, entity: entity, id: id) -> boolean,
-	relation: (self: world, cascade_deletions: boolean?) -> (id<entity>, id<{ entity }>),
+	Entity: (self: World) -> Entity,
+	Component: <T>(self: World) -> Id<T>,
+	Get: <T>(self: World, entity: Entity, id: Id<T>) -> T?,
+	Expect: <T>(self: World, entity: Entity, id: Id<T>) -> T,
+	Add: (self: World, entity: Entity, id: Id) -> (),
+	Set: <T>(self: World, entity: Entity, id: Id<T>, value: T) -> (),
+	Remove: (self: World, entity: Entity, id: Id) -> (),
+	Delete: (self: World, entity: Entity) -> (),
+	Deleted: (self: World, callback: Listener<Entity>) -> Cleanup,
+	Added: <T>(self: World, id: Id<T>, listener: Listener<(Entity, T)>) -> Cleanup,
+	Changed: <T>(self: World, id: Id<T>, listener: Listener<(Entity, T)>) -> Cleanup,
+	Removed: <t>(self: World, id: Id<t>, listener: Listener<Entity>) -> Cleanup,
+	Has: (self: World, entity: Entity, id: Id) -> boolean,
+	Link: (self: World) -> Id<Entity>,
+	--Relation: (self: World, cascade_deletions: boolean?) -> (Id<Entity>, Id<{ Entity }>),
 
-	query:
-		& ((world) -> query)
-		& (<a>(world, id<a>) -> query<a>)
-		& (<a, b>(world, id<a>, id<b>) -> query<a, b>)
-		& (<a, b, c>(world, id<a>, id<b>, id<c>) -> query<a, b, c>)
-		& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> query<a, b, c, d>)
-		& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> query<a, b, c, d, e>),
+	Query:
+		& ((World) -> Query)
+		& (<A>(World, Id<A>) -> Query<A>)
+		& (<A, B>(World, Id<A>, Id<B>) -> Query<A, B>)
+		& (<A, B, C>(World, Id<A>, Id<B>, Id<C>) -> Query<A, B, C>)
+		& (<A, B, C, D>(World, Id<A>, Id<B>, Id<C>, Id<D>) -> Query<A, B, C, D>)
+		& (<A, B, C, D, E>(World, Id<A>, Id<B>, Id<C>, Id<D>, Id<E>) -> Query<A, B, C, D, E>),
 
-	view:
-		& ((world) -> view)
-		& (<a>(world, id<a>) -> view<a>)
-		& (<a, b>(world, id<a>, id<b>) -> view<a, b>)
-		& (<a, b, c>(world, id<a>, id<b>, id<c>) -> view<a, b, c>)
-		& (<a, b, c, d>(world, id<a>, id<b>, id<c>, id<d>) -> view<a, b, c, d>)
-		& (<a, b, c, d, e>(world, id<a>, id<b>, id<c>, id<d>, id<e>) -> view<a, b, c, d, e>),
+	View:
+		& ((World) -> View)
+		& (<A>(World, Id<A>) -> View<A>)
+		& (<A, B>(World, Id<A>, Id<B>) -> View<A, B>)
+		& (<A, B, C>(World, Id<A>, Id<B>, Id<C>) -> View<A, B, C>)
+		& (<A, B, C, D>(World, Id<A>, Id<B>, Id<C>, Id<D>) -> View<A, B, C, D>)
+		& (<A, B, C, D, E>(World, Id<A>, Id<B>, Id<C>, Id<D>, Id<E>) -> View<A, B, C, D, E>),
 }
 
-local function world_get_pool(self: world, id: id)
+local function WORLD_GET_POOL(self: World, id: Id)
 	if self.pools[id] then
 		return self.pools[id]
 	end
 
-	local pool = pool_create()
+	local pool = POOL_CREATE()
 	self.pools[id] = pool
 
 	return pool
 end
 
 -- TODO: key/pair this
-local function world_entity(self: world): entity
+local function WORLD_ENTITY(self: World): Entity
 	local id = self.id_top
 	if id >= ID_MAX then
 		error("entity id overflow")
@@ -214,16 +209,16 @@ local function world_entity(self: world): entity
 	return id :: any
 end
 
-local function world_component<t>(self: world): id<t>
-	local id = world_entity(self)
-	local pool = pool_create()
+local function WORLD_COMPONENT<t>(self: World): Id<t>
+	local id = WORLD_ENTITY(self)
+	local pool = POOL_CREATE()
 	self.pools[id] = pool
 
 	return id
 end
 
-local function world_get(self: world, entity: entity, id: id): any?
-	local pool = world_get_pool(self, id)
+local function WORLD_GET(self: World, entity: Entity, id: Id): any?
+	local pool = self.pools[id]
 	if not pool then
 		return
 	end
@@ -236,8 +231,8 @@ local function world_get(self: world, entity: entity, id: id): any?
 	return pool.values[index]
 end
 
-local function world_expect(self: world, entity: entity, id: id): any
-	local pool = world_get_pool(self, id)
+local function WORLD_EXPECT(self: World, entity: Entity, id: Id): any
+	local pool = self.pools[id]
 	assert(pool ~= nil, `pool {id} contains no entities`)
 
 	local index = pool.sparse[entity]
@@ -249,54 +244,53 @@ local function world_expect(self: world, entity: entity, id: id): any
 	return value
 end
 
-local function world_add(self: world, entity: entity, id: id, value: any?)
-	local pool = world_get_pool(self, id)
+local function WORLD_ADD(self: World, entity: Entity, id: Id, value: any?)
+	local pool = WORLD_GET_POOL(self, id)
 	if pool.sparse[entity] then
 		return
 	end
 
 	if self.on_added[id] then
-		signal_fire(self.on_added[id], entity, value)
+		SIGNAL_FIRE(self.on_added[id], entity, value)
 	end
 
-	pool_insert(pool, entity, value)
+	POOL_INSERT(pool, entity, value)
 end
 
-local function world_set(self: world, entity: entity, id: id, value: any)
-	local pool = world_get_pool(self, id)
+local function WORLD_SET(self: World, entity: Entity, id: Id, value: any)
+	local pool = WORLD_GET_POOL(self, id)
 	local index = pool.sparse[entity]
 	if not index then
 		-- if the entity is not in the pool, add it
-		world_add(self, entity, id, value)
-		index = pool.size
+		WORLD_ADD(self, entity, id, value)
 		return
 	end
 
 	if self.on_changed[id] then
-		signal_fire(self.on_changed[id], entity, value)
+		SIGNAL_FIRE(self.on_changed[id], entity, value)
 	end
 
 	pool.values[index] = value
 end
 
-local function world_remove(self: world, entity: entity, id: id)
-	local pool = world_get_pool(self, id)
+local function WORLD_REMOVE(self: World, entity: Entity, id: Id)
+	local pool = WORLD_GET_POOL(self, id)
 	if not pool.sparse[entity] then
 		return
 	end
 
 	if self.on_removed[id] then
-		signal_fire(self.on_removed[id], entity)
+		SIGNAL_FIRE(self.on_removed[id], entity)
 	end
 
-	pool_remove(pool, entity)
+	POOL_REMOVE(pool, entity)
 end
 
-local function world_delete(self: world, entity: entity)
+local function WORLD_DELETE(self: World, entity: Entity)
 	-- remove the entity from all pools
 	for id, pool in self.pools do
 		if pool.sparse[entity] then
-			world_remove(self, entity, id)
+			WORLD_REMOVE(self, entity, id)
 		end
 	end
 
@@ -308,11 +302,11 @@ local function world_delete(self: world, entity: entity)
 				continue
 			end
 
-			world_remove(self, pool.dense[i], entity)
+			WORLD_REMOVE(self, pool.dense[i], entity)
 		end
 	end
 
-	signal_fire(self.on_deleted, entity)
+	SIGNAL_FIRE(self.on_deleted, entity)
 
 	-- cleanup listeners
 	self.on_added[entity] = nil
@@ -320,43 +314,43 @@ local function world_delete(self: world, entity: entity)
 	self.on_removed[entity] = nil
 end
 
-local function world_deleted(self: world, callback: listener<id>)
-	return signal_connect(self.on_deleted, callback)
+local function WORLD_DELETED(self: World, callback: Listener<Id>)
+	return SIGNAL_CONNECT(self.on_deleted, callback)
 end
 
 -- TODO: signals should set the signal listeners table to nil on cleanup if empty
-local function world_added(self: world, id: id, callback: listener<entity, any>)
+local function WORLD_ADDED(self: World, id: Id, callback: Listener<Entity, any>)
 	if not self.on_added[id] then
 		self.on_added[id] = {}
 	end
 
-	return signal_connect(self.on_added[id], callback)
+	return SIGNAL_CONNECT(self.on_added[id], callback)
 end
 
-local function world_changed(self: world, id: id, callback: listener<entity, any>)
+local function WORLD_CHANGED(self: World, id: Id, callback: Listener<Entity, any>)
 	if not self.on_changed[id] then
 		self.on_changed[id] = {}
 	end
 
-	return signal_connect(self.on_changed[id], callback)
+	return SIGNAL_CONNECT(self.on_changed[id], callback)
 end
 
-local function world_removed(self: world, id: id, callback: listener<entity>)
+local function WORLD_REMOVED(self: World, id: Id, callback: Listener<Entity>)
 	if not self.on_removed[id] then
 		self.on_removed[id] = {}
 	end
 
-	return signal_connect(self.on_removed[id], callback)
+	return SIGNAL_CONNECT(self.on_removed[id], callback)
 end
 
-local function world_has(self: world, entity: entity, id: id): boolean
+local function WORLD_HAS(self: World, entity: Entity, id: Id): boolean
 	local pool = self.pools[id]
 	return pool ~= nil and pool.sparse[entity] ~= nil
 end
 
-local function world_query(self: world, ...: id): query
-	local storage = sparse_set_create()
-	local counts: { [entity]: number } = {}
+local function WORLD_QUERY(self: World, ...: Id): Query
+	local storage = SPARSE_SET_CREATE()
+	local counts: { [Entity]: number } = {}
 
 	local ids = { ... }
 	local ids_exclude = {}
@@ -365,30 +359,30 @@ local function world_query(self: world, ...: id): query
 
 	assert(n_include > 0, "query requires at least one id")
 
-	local on_matched: { listener<entity> } = {}
-	local on_changed: { listener<entity> } = {}
-	local on_unmatched: { listener<entity> } = {}
+	local on_matched: { Listener<Entity> } = {}
+	local on_changed: { Listener<Entity> } = {}
+	local on_unmatched: { Listener<Entity> } = {}
 
-	local function on_entity_added(entity: entity)
+	local function on_entity_added(entity: Entity)
 		counts[entity] = (counts[entity] or 0) + 1
 
 		if counts[entity] >= n_include and not storage.sparse[entity] then
-			signal_fire(on_matched, entity)
-			sparse_set_insert(storage, entity)
+			SIGNAL_FIRE(on_matched, entity)
+			SPARSE_SET_INSERT(storage, entity)
 		end
 	end
 
-	local function on_entity_changed(entity: entity)
-		signal_fire(on_changed, entity)
+	local function on_entity_changed(entity: Entity)
+		SIGNAL_FIRE(on_changed, entity)
 	end
 
-	local function on_entity_removed(entity: entity)
+	local function on_entity_removed(entity: Entity)
 		counts[entity] = (counts[entity] or 0) - 1
 
 		local index = storage.sparse[entity]
 		if index then
-			signal_fire(on_unmatched, entity)
-			sparse_set_remove(storage, entity)
+			SIGNAL_FIRE(on_unmatched, entity)
+			SPARSE_SET_REMOVE(storage, entity)
 		end
 
 		if (counts[entity] or 0) <= 0 then
@@ -397,15 +391,15 @@ local function world_query(self: world, ...: id): query
 	end
 
 	for _, id in ids do
-		world_added(self, id, on_entity_added)
-		world_changed(self, id, on_entity_changed)
-		world_removed(self, id, on_entity_removed)
+		WORLD_ADDED(self, id, on_entity_added)
+		WORLD_CHANGED(self, id, on_entity_changed)
+		WORLD_REMOVED(self, id, on_entity_removed)
 	end
 
 	local function query_iter(): () -> ...any
 		local i = storage.size + 1
 		if n_include == 1 then
-			local a = world_get_pool(self, ids[1])
+			local a = WORLD_GET_POOL(self, ids[1])
 
 			return function()
 				i -= 1
@@ -416,8 +410,8 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia]
 			end
 		elseif n_include == 2 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
 
 			return function()
 				i -= 1
@@ -429,9 +423,9 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib]
 			end
 		elseif n_include == 3 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
 
 			return function()
 				i -= 1
@@ -444,10 +438,10 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib], c.values[ic]
 			end
 		elseif n_include == 4 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
-			local d = world_get_pool(self, ids[4])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
+			local d = WORLD_GET_POOL(self, ids[4])
 
 			return function()
 				i -= 1
@@ -461,11 +455,11 @@ local function world_query(self: world, ...: id): query
 				return entity, a.values[ia], b.values[ib], c.values[ic], d.values[id]
 			end
 		elseif n_include == 5 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
-			local d = world_get_pool(self, ids[4])
-			local e = world_get_pool(self, ids[5])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
+			local d = WORLD_GET_POOL(self, ids[4])
+			local e = WORLD_GET_POOL(self, ids[5])
 
 			return function()
 				i -= 1
@@ -488,63 +482,61 @@ local function world_query(self: world, ...: id): query
 		return storage.size
 	end
 
-	local function query_without(query: query, ...: id)
+	local function query_without(query: Query, ...: Id)
 		for i = 1, select("#", ...) do
 			local id = select(i, ...)
 			table.insert(ids_exclude, id)
 			n_exclude += 1
 
-			world_added(self, id, on_entity_removed)
-			world_removed(self, id, on_entity_added)
+			WORLD_ADDED(self, id, on_entity_removed)
+			WORLD_REMOVED(self, id, on_entity_added)
 		end
 
 		return query
 	end
 
 	return setmetatable({
-		size = query_size,
-		without = query_without,
-		iter = query_iter,
+		Size = query_size,
+		Without = query_without,
 	}, {
 		__iter = query_iter,
 	})
 end
 
-local function view_exclude(self: world, entity: entity, ids: { id })
+local function VIEW_EXCLUDE(self: World, entity: Entity, ids: { Id })
 	local a, b, c, d, e, ERR = ids[1], ids[2], ids[3], ids[4], ids[5], ids[6]
 
 	if a == nil then
 		return false
 	elseif b == nil then
-		return world_has(self, entity, a)
+		return WORLD_HAS(self, entity, a)
 	elseif c == nil then
 		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
+			WORLD_HAS(self, entity, a)
+			or WORLD_HAS(self, entity, b)
 	elseif d == nil then
 		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
+			WORLD_HAS(self, entity, a)
+			or WORLD_HAS(self, entity, b)
+			or WORLD_HAS(self, entity, c)
 	elseif e == nil then
 		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
-			or world_has(self, entity, d)
+			WORLD_HAS(self, entity, a)
+			or WORLD_HAS(self, entity, c)
+			or WORLD_HAS(self, entity, d)
 	elseif ERR == nil then
 		return
-			world_has(self, entity, a)
-			or world_has(self, entity, b)
-			or world_has(self, entity, c)
-			or world_has(self, entity, d)
-			or world_has(self, entity, e)
+			WORLD_HAS(self, entity, a)
+			or WORLD_HAS(self, entity, b)
+			or WORLD_HAS(self, entity, c)
+			or WORLD_HAS(self, entity, d)
+			or WORLD_HAS(self, entity, e)
 	else
 		error("view_exclude: too many ids")
 	end
 end
 
-local function world_view(self: world, ...: id): view
+local function WORLD_VIEW(self: World, ...: Id): View
 	local ids = { ... }
 	local ids_exclude = {}
 
@@ -553,7 +545,7 @@ local function world_view(self: world, ...: id): view
 		local n_exclude = #ids_exclude
 
 		if n_include == 1 then
-			local a = world_get_pool(self, ids[1])
+			local a = WORLD_GET_POOL(self, ids[1])
 			local i = a.size + 1
 			return function()
 				while i > 0 do
@@ -561,7 +553,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = a.dense[i]
 
-					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and VIEW_EXCLUDE(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -570,8 +562,8 @@ local function world_view(self: world, ...: id): view
 			end
 
 		elseif n_include == 2 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
 
 			local p =
 				if a.size < b.size then a
@@ -584,7 +576,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and VIEW_EXCLUDE(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -598,9 +590,9 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 3 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
 
 			local p =
 				if a.size < b.size and a.size < c.size then a
@@ -614,7 +606,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and VIEW_EXCLUDE(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -629,10 +621,10 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 4 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
-			local d = world_get_pool(self, ids[4])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
+			local d = WORLD_GET_POOL(self, ids[4])
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size then a
 				elseif b.size < c.size and b.size < d.size then b
@@ -646,7 +638,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and VIEW_EXCLUDE(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -662,11 +654,11 @@ local function world_view(self: world, ...: id): view
 				end
 			end
 		elseif n_include == 5 then
-			local a = world_get_pool(self, ids[1])
-			local b = world_get_pool(self, ids[2])
-			local c = world_get_pool(self, ids[3])
-			local d = world_get_pool(self, ids[4])
-			local e = world_get_pool(self, ids[5])
+			local a = WORLD_GET_POOL(self, ids[1])
+			local b = WORLD_GET_POOL(self, ids[2])
+			local c = WORLD_GET_POOL(self, ids[3])
+			local d = WORLD_GET_POOL(self, ids[4])
+			local e = WORLD_GET_POOL(self, ids[5])
 
 			local p =
 				if a.size < b.size and a.size < c.size and a.size < d.size and a.size < e.size then a
@@ -682,7 +674,7 @@ local function world_view(self: world, ...: id): view
 					if i == 0 then return end
 					local entity = p.dense[i]
 
-					if n_exclude > 0 and view_exclude(self, entity, ids_exclude) then
+					if n_exclude > 0 and VIEW_EXCLUDE(self, entity, ids_exclude) then
 						continue
 					end
 
@@ -703,7 +695,7 @@ local function world_view(self: world, ...: id): view
 		end
 	end
 
-	local function view_without(view: view, ...: id)
+	local function view_without(view: View, ...: Id)
 		for _, id in { ... } do
 			table.insert(ids_exclude, id)
 		end
@@ -712,18 +704,33 @@ local function world_view(self: world, ...: id): view
 	end
 
 	return setmetatable({
-		without = view_without,
-		iter = view_iter
+		Without = view_without,
 	}, {
 		__iter = view_iter
 	})
+end
+
+local function WORLD_LINK(self: World)
+	local id = self:Component<<Entity>>()
+	local pool = self.pools[id]
+
+	self:Deleted(function(target)
+		for i = pool.size, 1, -1 do
+			local entity = pool.dense[i]
+			if pool.values[i] == target then
+				WORLD_REMOVE(self, entity, id)
+			end
+		end
+	end)
+
+	return id
 end
 
 -- relationships
 -- for reference: subject is the entity with the relation component
 -- target is the value of that component
 -- ex. world:set(joe, child_of, bob) -> joe is the subject, bob is the target
-local function world_relation(self: world, cascade_deletions: boolean?)
+--[[local function world_relation(self: world, cascade_deletions: boolean?)
 	local reference_up = world_component<<entity>>(self)
 	local reference_down = world_component<<{ entity }>>(self)
 
@@ -788,9 +795,9 @@ local function world_relation(self: world, cascade_deletions: boolean?)
 	end)
 
 	return reference_up, reference_down
-end
+	end--]]
 
-local function world_create(): world
+local function WORLD_NEW(): World
 	return {
 		id_top = 0,
 		pools = {},
@@ -799,27 +806,27 @@ local function world_create(): world
 		on_removed = {},
 		on_deleted = {},
 
-		entity = world_entity,
-		component = world_component,
-		add = world_add,
-		set = world_set,
-		remove = world_remove,
-		delete = world_delete,
-		deleted = world_deleted,
-		added = world_added,
-		changed = world_changed,
-		removed = world_removed,
-		query = world_query,
-		view = world_view,
-		has = world_has,
-		get = world_get,
-		expect = world_expect,
-		relation = world_relation,
+		Entity = WORLD_ENTITY,
+		Component = WORLD_COMPONENT,
+		Add = WORLD_ADD,
+		Set = WORLD_SET,
+		Remove = WORLD_REMOVE,
+		Delete = WORLD_DELETE,
+		Added = WORLD_ADDED,
+		Changed = WORLD_CHANGED,
+		Removed = WORLD_REMOVED,
+		Deleted = WORLD_DELETED,
+		Query = WORLD_QUERY,
+		View = WORLD_VIEW,
+		Has = WORLD_HAS,
+		Get = WORLD_GET,
+		Expect = WORLD_EXPECT,
+		Link = WORLD_LINK,
 	}
 end
 
 return {
 	ID_MAX = ID_MAX,
 
-	world = world_create,
+	World = WORLD_NEW,
 }
