@@ -72,6 +72,14 @@ test.suite("world:Entity()", function(suite)
 		local e3 = world:Entity()
 		asserts.eq(ID_KEY(e3), 1)
 		asserts.eq(ID_VERSION(e3), 0)
+
+		world:Delete(e2)
+
+		local e4 = world:Entity()
+		asserts.eq(ID_KEY(e4), 0)
+		asserts.eq(ID_VERSION(e4), 2)
+
+		print(e4)
 	end)
 
 	suite:case("Active entity limit", function(asserts)
