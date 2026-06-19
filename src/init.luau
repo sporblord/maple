@@ -8,11 +8,15 @@ export type Id<T = any> = Entity<T>
 
 local ID_KEY_MASK = 2^16
 local ID_KEY_MAX = ID_KEY_MASK - 1
-local ID_VERSION_MAX = 2^16
 
-local ID_MAX = (ID_KEY_MAX * ID_VERSION_MAX) - 1
+local ID_VERSION_MASK = 2^37
+local ID_VERSION_MAX = ID_VERSION_MASK - 1
+
+local ID_PAIR_MASK = 2^53
+local ID_MAX = 2^53 - 1
 
 local function ID_CREATE(key: number, version: number)
+	assert(key < ID_KEY_MASK and version < ID_VERSION_MASK, "ID overflow")
 	return key + (version * ID_KEY_MASK)
 end
 
@@ -22,6 +26,24 @@ end
 
 local function ID_VERSION(id: number)
 	return id // ID_KEY_MASK
+end
+
+local function ID_PAIR_CREATE(a: number, b: number)
+	local aKey = ID_KEY(a)
+	local bKey = ID_KEY(b)
+	return aKey + (bKey * ID_PAIR_MASK) + ID_PAIR_MASK
+end
+
+local function ID_PAIR_FIRST(id: number)
+	return id % ID_PAIR_MASK
+end
+
+local function ID_PAIR_SECOND(id: number)
+	return (id // ID_PAIR_MASK) % ID_PAIR_MASK
+end
+
+local function ID_IS_PAIR(id: number)
+	return id >= ID_PAIR_MASK
 end
 
 -- signal utilities
@@ -148,8 +170,10 @@ export type View<t... = ...any> = setmetatable<{
 
 export type World = {
 	keyTop: number,
+	keyMax: number,
 	keysFree: { number },
 	versions: { [number]: number },
+	partition: { Low: number, High: number }?,
 
 	pools: { [Id]: Pool },
 	on_added: { [Id]: { Listener<Entity, any> } },
@@ -172,6 +196,8 @@ export type World = {
 	Removed: <t>(self: World, id: Id<t>, listener: Listener<Entity>) -> Cleanup,
 	Has: (self: World, entity: Entity, id: Id) -> boolean,
 	Link: (self: World) -> Id<Entity>,
+	Linkset: (self: World) -> Id<{ Entity }>,
+	Partition: (self: World, partitionLow: number, partitionHigh: number) -> (),
 	--Relation: (self: World, cascade_deletions: boolean?) -> (Id<Entity>, Id<{ Entity }>),
 
 	Query:
@@ -214,7 +240,7 @@ local function WORLD_ENTITY(self: World): Entity
 		self.keysFree[size] = nil
 	end
 
-	assert(key <= ID_KEY_MAX, `entity key overflow`)
+	assert(key <= self.keyMax, `entity key overflow`)
 
 	local version = self.versions[key] or 0
 	self.versions[key] = version
@@ -230,8 +256,8 @@ local function WORLD_COMPONENT<t>(self: World): Id<t>
 	return id
 end
 
-local function WORLD_EXISTS(self: World, id: Id)
-	local id: number = id :: any
+local function WORLD_EXISTS(self: World, _id: Id)
+	local id: number = _id :: any
 	local key = ID_KEY(id)
 	return self.versions[key] == ID_VERSION(id)
 end
@@ -264,6 +290,8 @@ local function WORLD_EXPECT(self: World, entity: Entity, id: Id): any
 end
 
 local function WORLD_ADD(self: World, entity: Entity, id: Id, value: any?)
+	assert(not ID_IS_PAIR(entity :: any), `Cannot use a pair ({entity}) as an entity`)
+
 	local pool = WORLD_GET_POOL(self, id)
 	if pool.sparse[entity] then
 		return
@@ -277,6 +305,8 @@ local function WORLD_ADD(self: World, entity: Entity, id: Id, value: any?)
 end
 
 local function WORLD_SET(self: World, entity: Entity, id: Id, value: any)
+	assert(not ID_IS_PAIR(entity :: any), `Cannot use a pair ({entity}) as an entity`)
+
 	local pool = WORLD_GET_POOL(self, id)
 	local index = pool.sparse[entity]
 	if not index then
@@ -305,15 +335,43 @@ local function WORLD_REMOVE(self: World, entity: Entity, id: Id)
 	POOL_REMOVE(pool, entity)
 end
 
-local function WORLD_DELETE(self: World, entity: Entity)
-	-- remove the entity from all pools
+local function WORLD_PAIR_FIRST(self: World, entity: Entity)
+	local id: number = entity :: any
+	assert(ID_IS_PAIR(id), `entity {id} is not a pair`)
+
+	return ID_PAIR_FIRST(id)
+end
+
+local function WORLD_PAIR_SECOND(self: World, entity: Entity)
+	local id: number = entity :: any
+	assert(ID_IS_PAIR(id), `entity {id} is not a pair`)
+
+	return ID_PAIR_SECOND(id)
+end
+
+local function WORLD_PAIR(self: World, a: Entity, b: Entity)
+	return ID_PAIR_CREATE(a :: any, b :: any)
+end
+
+local function WORLD_DELETE(self: World, entity: number)
+	local isPair = ID_IS_PAIR(entity :: any)
+
+	-- Remove the entity from all pools
 	for id, pool in self.pools do
 		if pool.sparse[entity] then
 			WORLD_REMOVE(self, entity, id)
 		end
 	end
 
-	-- if the entity is a pool, remove all its entities
+	-- All pools which are associated with the entity alone or in a pair should be deleted
+	for poolId, pool in self.pools do
+		local first = WORLD_PAIR_FIRST(self, poolId)
+		local second = WORLD_PAIR_SECOND(self, poolId)
+		if first == entity or second == entity then
+
+		end
+	end
+
 	local pool = self.pools[entity]
 	if pool then
 		for i = #pool.dense, 1, -1 do
@@ -325,10 +383,10 @@ local function WORLD_DELETE(self: World, entity: Entity)
 		end
 	end
 
-	-- delete the entity
+	-- Delete the entity
 	local key = ID_KEY(entity :: any)
 	local version = self.versions[key] or 0
-	if version >= ID_VERSION_MAX then
+	if version > ID_VERSION_MAX then
 		self.versions[key] = 0
 	else
 		self.versions[key] = version + 1
@@ -741,6 +799,8 @@ local function WORLD_VIEW(self: World, ...: Id): View
 	})
 end
 
+--- A link represents a 1:1 relationship. It is a component which simply holds an entity id.
+--- The link component is automatically removed if the target entity is deleted.
 local function WORLD_LINK(self: World)
 	local id = self:Component<<Entity>>()
 	local pool = self.pools[id]
@@ -755,6 +815,38 @@ local function WORLD_LINK(self: World)
 	end)
 
 	return id
+end
+
+--- A linkset is similar to a link, but allows multiple targets. It is a component which holds an array
+--- of entity ids, and is automatically cleaned up when the target entities are deleted.
+local function WORLD_LINKSET(self: World)
+	local id = self:Component<<{ Entity }>>()
+	local pool = self.pools[id]
+
+	self:Deleted(function(target)
+		for i = pool.size, 1, -1 do
+			local entity = pool.dense[i]
+			local set = pool.values[i]
+			local index = table.find(set, target)
+			if index then
+				table.remove(set, index)
+
+				if not next(set) then
+					WORLD_REMOVE(self, entity, id)
+				end
+			end
+		end
+	end)
+
+	return id
+end
+
+--- A linkpair consists of a link and a linkset. It is used to model a relationship where the link
+--- automatically updates the target entities' linkset for reverse indexing.
+--- For example, a linkpair consisting of (Parent, Children) will automatically populate the Children linkset
+--- based on entities with the Parent link.
+local function WORLD_LINKPAIR(self: World, link: Id<Entity>, linkset: Id<{ Entity }>)
+
 end
 
 -- relationships
@@ -828,9 +920,18 @@ end
 	return reference_up, reference_down
 	end--]]
 
+local function WORLD_PARTITION(self: World, partitionLow: number, partitionHigh: number)
+	assert(partitionLow >= 0, "partitionLow must not be negative")
+	assert(partitionLow < ID_KEY_MAX, "partitionLow must be less than ID_KEY_MAX")
+	assert(partitionHigh > partitionLow, "partitionHigh must be greater than partitionLow")
+
+	self.keyTop += partitionLow
+end
+
 local function WORLD_NEW(): World
 	return {
 		keyTop = 0,
+		keyMax = ID_KEY_MAX,
 		keysFree = {},
 		versions = {},
 
@@ -857,6 +958,8 @@ local function WORLD_NEW(): World
 		Get = WORLD_GET,
 		Expect = WORLD_EXPECT,
 		Link = WORLD_LINK,
+		Linkset = WORLD_LINKSET,
+		Partition = WORLD_PARTITION,
 	}
 end
 
