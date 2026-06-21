@@ -4,6 +4,8 @@ local Pool = require("./Pool")
 local Signal = require("./Signal")
 local Types = require("./Types")
 
+const IsPair = Ids.IsPair
+
 const ID_KEY_MAX = Ids.ID_KEY_MAX
 const ID_VERSION_MAX = Ids.ID_VERSION_MAX
 
@@ -26,6 +28,10 @@ local function ensurePool(self: Registry, id: number)
 	self.pools[id] = pool
 
 	return pool
+end
+
+local function assertIsNotPair(id: number)
+	assert(not IsPair(id), `id {id} must not be a pair`)
 end
 
 local function GetPool(self: Registry, id: number)
@@ -79,7 +85,7 @@ local function GetComponent(self: Registry, entity: number, id: number): any?
 end
 
 local function AddComponent(self: Registry, entity: number, id: number, value: any?)
-	assert(not Ids.IsPair(entity :: any), `Cannot use a pair ({entity}) as an entity`)
+	assertIsNotPair(entity)
 
 	local pool = ensurePool(self, id)
 	if pool.sparse[entity] then
@@ -95,7 +101,7 @@ local function AddComponent(self: Registry, entity: number, id: number, value: a
 end
 
 local function SetComponent(self: Registry, entity: number, id: number, value: any)
-	assert(not Ids.IsPair(entity :: any), `Cannot use a pair ({entity}) as an entity`)
+	assertIsNotPair(entity)
 
 	local pool = ensurePool(self, id)
 	local index = pool.sparse[entity]
@@ -114,6 +120,8 @@ local function SetComponent(self: Registry, entity: number, id: number, value: a
 end
 
 local function RemoveComponent(self: Registry, entity: number, id: number)
+	assertIsNotPair(entity)
+
 	local pool = ensurePool(self, id)
 	if not pool.sparse[entity] then
 		return
@@ -125,54 +133,10 @@ local function RemoveComponent(self: Registry, entity: number, id: number)
 	end
 
 	Pool.Remove(pool, entity)
-end
 
-local function Delete(self: Registry, id: number)
-	local isPair = Ids.IsPair(id :: any)
-
-	-- Remove the entity from all pools
-	for poolId, pool in self.pools do
-		if pool.sparse[id] then
-			RemoveComponent(self, id, poolId)
-		end
+	if pool.size == 0 then
+		self.pools[id] = nil
 	end
-
-	-- All pools which are associated with the entity alone or in a pair should be deleted
-	--[[for poolId, pool in self.pools do
-		local first = WORLD_PAIR_FIRST(self, poolId)
-		local second = WORLD_PAIR_SECOND(self, poolId)
-		if first == entity or second == entity then
-
-		end
-	end--]]
-
-	local pool = self.pools[id]
-	if pool then
-		for i = #pool.dense, 1, -1 do
-			if pool.dense[i] == id then
-				continue
-			end
-
-			RemoveComponent(self, pool.dense[i], id)
-		end
-	end
-
-	-- Delete the entity
-	local key = Ids.GetKey(id)
-	local version = self.versions[key] or 0
-	if version > ID_VERSION_MAX then
-		self.versions[key] = 0
-	else
-		self.versions[key] = version + 1
-	end
-
-	table.insert(self.keysFree, key)
-	self.Deleted:Fire(id :: any)
-
-	-- cleanup listeners
-	self.signalsAdded[id] = nil
-	self.signalsChanged[id] = nil
-	self.signalsRemoved[id] = nil
 end
 
 local function Exists(self: Registry, id: number)
@@ -194,6 +158,48 @@ local function GetTarget(self: Registry, id: number)
 	local version = self.versions[key] or 0
 
 	return Ids.Create(key, version)
+end
+
+local function Delete(self: Registry, id: number)
+	-- All pools which are associated with the id should be deleted
+	-- All pools which contain the entity should have it removed
+	for poolId, pool in self.pools do
+		local matches = poolId == id
+		if not matches and IsPair(poolId) then
+			local relation = GetRelation(self, poolId)
+			local target = GetTarget(self, poolId)
+			matches = relation == id or target == id
+		end
+
+		if matches then
+			-- Delete the pool by removing all its entities
+			for i = #pool.dense, 1, -1 do
+				RemoveComponent(self, pool.dense[i], poolId)
+			end
+		elseif pool.sparse[id] then
+			RemoveComponent(self, id, poolId)
+		end
+	end
+
+	-- Delete the id
+	if not IsPair(id) then
+		local key = Ids.GetKey(id)
+		local version = self.versions[key] or 0
+		if version > ID_VERSION_MAX then
+			self.versions[key] = 0
+		else
+			self.versions[key] = version + 1
+		end
+
+		table.insert(self.keysFree, key)
+	end
+
+	-- cleanup listeners
+	self.signalsAdded[id] = nil
+	self.signalsChanged[id] = nil
+	self.signalsRemoved[id] = nil
+
+	self.Deleted:Fire(id :: any)
 end
 
 local function SetPartition(self: Registry, partitionLow: number, partitionHigh: number)
@@ -235,12 +241,31 @@ local function View(self: Registry, ...: number): View
 	local function hasExcluded(entity: number)
 		local a, b, c, d, e = idsExclude[1], idsExclude[2], idsExclude[3], idsExclude[4], idsExclude[5]
 
-		return
-			if a ~= nil then HasComponent(self, entity, a) else nil
-			or if b ~= nil then HasComponent(self, entity, b) else nil
-			or if c ~= nil then HasComponent(self, entity, c) else nil
-			or if d ~= nil then HasComponent(self, entity, d) else nil
-			or if e ~= nil then HasComponent(self, entity, e) else nil
+		if not b then
+			return HasComponent(self, entity, a)
+		elseif not c then
+			return
+				HasComponent(self, entity, a)
+				or HasComponent(self, entity, b)
+		elseif not d then
+			return
+				HasComponent(self, entity, a)
+				or HasComponent(self, entity, b)
+				or HasComponent(self, entity, c)
+		elseif not e then
+			return
+				HasComponent(self, entity, a)
+				or HasComponent(self, entity, b)
+				or HasComponent(self, entity, c)
+				or HasComponent(self, entity, d)
+		else
+			return
+				HasComponent(self, entity, a)
+				or HasComponent(self, entity, b)
+				or HasComponent(self, entity, c)
+				or HasComponent(self, entity, d)
+				or HasComponent(self, entity, e)
+		end
 	end
 
 	local function iter(): () -> ...any

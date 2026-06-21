@@ -143,7 +143,78 @@ test.case("registry:Exists", function(asserts)
 end)
 
 test.case("registry:Delete()", function(suite)
+	test.case("Delete entity", function(asserts)
+		local registry = createRegistry()
+		local id1 = registry:CreateComponent()
+		local id2 = registry:CreateComponent()
+		local entity = registry:CreateEntity()
+		registry:SetComponent(entity, id1, 100)
+		registry:SetComponent(entity, id2, 200)
 
+		local pool1 = registry:GetPool(id1)
+		local pool2 = registry:GetPool(id2)
+		assert(pool1 and pool2)
+
+		asserts.eq(pool1.size, 1)
+		asserts.eq(pool2.size, 1)
+
+		registry:Delete(entity)
+		asserts.eq(next(registry.pools), nil)
+	end)
+
+	test.case("Delete component", function(asserts)
+		local registry = createRegistry()
+		local id = registry:CreateComponent()
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id, i)
+		end
+
+		local pool = registry:GetPool(id)
+		assert(pool)
+		asserts.eq(pool.size, 10)
+
+		registry:Delete(id)
+		asserts.eq(next(registry.pools), nil)
+	end)
+
+	test.case("Delete pair", function(asserts)
+		local registry = createRegistry()
+		local ChildOf = registry:CreateComponent()
+		local sporb = registry:CreateEntity()
+
+		local childOfSporb = Pair(ChildOf, sporb)
+		for i = 1, 10 do
+			local sporbling = registry:CreateEntity()
+			registry:AddComponent(sporbling, childOfSporb)
+		end
+
+		local pool = registry:GetPool(childOfSporb)
+		assert(pool)
+		asserts.eq(pool.size, 10)
+
+		registry:Delete(childOfSporb)
+		asserts.eq(registry:GetPool(childOfSporb), nil)
+	end)
+
+	test.case("Delete entity with associated pair", function(asserts)
+		local registry = createRegistry()
+		local ChildOf = registry:CreateComponent()
+		local sporb = registry:CreateEntity()
+
+		local childOfSporb = Pair(ChildOf, sporb)
+		for i = 1, 10 do
+			local sporbling = registry:CreateEntity()
+			registry:AddComponent(sporbling, childOfSporb)
+		end
+
+		local pool = registry:GetPool(childOfSporb)
+		assert(pool)
+		asserts.eq(pool.size, 10)
+
+		registry:Delete(sporb)
+		asserts.eq(registry:GetPool(childOfSporb), nil)
+	end)
 end)
 
 test.case("registry:View()", function(suit)
@@ -211,6 +282,35 @@ test.case("registry:View()", function(suit)
 		end
 
 		asserts.eq(count, 5)
+	end)
+
+	test.case("2 components excl 2", function(asserts)
+		local registry = createRegistry()
+		local id1 = registry:CreateComponent()
+		local id2 = registry:CreateComponent()
+		local id3 = registry:CreateComponent()
+		local id4 = registry:CreateComponent()
+
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id1, i)
+			registry:SetComponent(entity, id2, i)
+
+			if i % 2 == 0 then
+				registry:AddComponent(entity, id3)
+			end
+
+			if i % 3 == 0 then
+				registry:AddComponent(entity, id4)
+			end
+		end
+
+		local count = 0
+		for entity in registry:View(id1, id2):Without(id3, id4) do
+			count += 1
+		end
+
+		asserts.eq(count, 3)
 	end)
 
 	test.case("5 components", function(asserts)
