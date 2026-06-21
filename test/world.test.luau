@@ -11,6 +11,10 @@ const GetVersion = Maple.GetVersion :: (Id) -> number
 -- how many entities to test with
 local N = 1e3
 
+local function triangularNumber(n: number)
+	return n * (n + 1) / 2
+end
+
 local function createRegistry()
 	return Maple.Registry.new()
 end
@@ -167,4 +171,97 @@ end)
 
 test.case("registry:Delete()", function(suite)
 
+end)
+
+test.case("registry:View()", function(suit)
+	test.case("1 component", function(asserts)
+		local registry = createRegistry()
+		local id = registry:CreateComponent()
+
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id, i)
+		end
+
+		local count = 0
+		local sum = 0
+		for entity, value in registry:View(id) do
+			count += 1
+			sum += value
+		end
+
+		asserts.eq(count, 10)
+		asserts.eq(sum, triangularNumber(10))
+	end)
+
+	test.case("2 components", function(asserts)
+		local registry = createRegistry()
+		local id1 = registry:CreateComponent()
+		local id2 = registry:CreateComponent()
+
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id1, i)
+			registry:SetComponent(entity, id2, i)
+		end
+
+		local count = 0
+		local sum = 0
+		for entity, value1, value2 in registry:View(id1, id2) do
+			count += 1
+			sum += value1 + value2
+		end
+
+		asserts.eq(count, 10)
+		asserts.eq(sum, triangularNumber(10) + triangularNumber(10))
+	end)
+
+	test.case("2 components excl 1", function(asserts)
+		local registry = createRegistry()
+		local id1 = registry:CreateComponent()
+		local id2 = registry:CreateComponent()
+		local id3 = registry:CreateComponent()
+
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id1, i)
+			registry:SetComponent(entity, id2, i)
+
+			if i % 2 == 0 then
+				registry:AddComponent(entity, id3)
+			end
+		end
+
+		local count = 0
+		for entity in registry:View(id1, id2):Without(id3) do
+			count += 1
+		end
+
+		asserts.eq(count, 5)
+	end)
+
+	test.case("5 components", function(asserts)
+		local registry = createRegistry()
+		local id1 = registry:CreateComponent()
+		local id2 = registry:CreateComponent()
+		local id3 = registry:CreateComponent()
+		local id4 = registry:CreateComponent()
+		local id5 = registry:CreateComponent()
+
+		for i = 1, 10 do
+			local entity = registry:CreateEntity()
+			registry:SetComponent(entity, id1, i)
+			registry:SetComponent(entity, id2, i)
+			registry:SetComponent(entity, id3, i)
+			registry:SetComponent(entity, id4, i)
+			registry:SetComponent(entity, id5, i)
+		end
+
+		local count = 0
+		for entity in registry:View(id1, id2, id3, id4, id5) do
+			count += 1
+		end
+
+		asserts.eq(count, 10)
+	end)
 end)
