@@ -404,8 +404,4 @@ test.suite("Pairs", function(suite)
 
 		asserts.eq(count, 10)
 	end)
-
-	suite:case("Delete pair", function(asserts)
-
-	end)
 end)
