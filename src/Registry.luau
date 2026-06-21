@@ -1,9 +1,7 @@
 --!strict
-local luau = require("../../../../../.lute/typedefs/1.0.0/lute/luau")
 local Ids = require("./Ids")
 local Pool = require("./Pool")
 local Signal = require("./Signal")
-local SparseSet = require("./SparseSet")
 local Types = require("./Types")
 
 const ID_KEY_MAX = Ids.ID_KEY_MAX
@@ -14,7 +12,7 @@ const function NOOP() return nil :: any end
 type Entity<T = any> = Types.Entity<T>
 type Id<T = any> = Types.Id<T>
 type Signal<T...> = Types.Signal<T...>
-type Pool<T = any> = Types.Pool<T>
+type Pool = Types.PoolInternal
 type SparseSet = Types.SparseSet
 type Registry = Types.Registry
 type View = Types.View
@@ -28,6 +26,10 @@ local function ensurePool(self: Registry, id: number)
 	self.pools[id] = pool
 
 	return pool
+end
+
+local function GetPool(self: Registry, id: number)
+	return self.pools[id]
 end
 
 local function CreateEntity(self: Registry)
@@ -416,6 +418,7 @@ local function new(): Registry
 		signalsChanged = {},
 		signalsRemoved = {},
 
+		GetPool = GetPool :: any,
 		CreateEntity = CreateEntity :: any,
 		CreateComponent = CreateComponent :: any,
 		HasComponent = HasComponent :: any,

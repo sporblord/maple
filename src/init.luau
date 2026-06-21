@@ -11,5 +11,5 @@ return {
 	GetKey = Ids.GetKey,
 	GetVersion = Ids.GetVersion,
 
-	createRegistry = Registry.new
+	Registry = Registry
 }

@@ -3,19 +3,24 @@
 export type Entity<T = any> = { __T: T }
 export type Id<T = any> = Entity<T>
 
-export type SparseSet = {
+export type SparseSet<Index = number> = {
 	-- how many ids are currently in the set
 	size: number,
 
 	-- a contiguous array of ids
-	dense: { number },
+	dense: { Index },
 
 	-- maps ids to their index in the dense array
-	sparse: { [number]: number },
+	sparse: { [Index]: number },
 }
 
-export type Pool<T = any> = SparseSet & {
-	--- associated data, indices match the dense array
+export type PoolInternal = SparseSet & {
+	--- Associated data, indices match the dense array
+	values: { any },
+}
+
+export type PoolExternal<T> = SparseSet<Id> & {
+	--- Associated data, indices match the dense array
 	values: { T },
 }
 
@@ -48,11 +53,12 @@ export type Registry = {
 	versions: { [number]: number },
 	partition: { Low: number, High: number }?,
 
-	pools: { [number]: Pool },
+	pools: { [number]: PoolInternal },
 	signalsAdded: { [number]: Signal<(Entity, any)> },
 	signalsChanged: { [number]: Signal<(Entity, any)> },
 	signalsRemoved: { [number]: Signal<Entity> },
 
+	GetPool: <T>(self: Registry, id: Id<T>) -> PoolExternal<T>?,
 	CreateEntity: (self: Registry) -> Entity,
 	CreateComponent: <T>(self: Registry) -> Id<T>,
 	HasComponent: (self: Registry, entity: Entity, id: Id) -> boolean,
