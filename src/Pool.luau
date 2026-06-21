@@ -4,7 +4,7 @@
 local SparseSet = require("./SparseSet")
 local Types = require("./Types")
 
-type Pool = Types.Pool
+type Pool = Types.PoolInternal
 
 local function Create(): Pool
 	local pool = {
