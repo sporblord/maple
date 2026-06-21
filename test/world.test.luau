@@ -405,3 +405,56 @@ test.suite("Pairs", function(suite)
 		asserts.eq(count, 10)
 	end)
 end)
+
+test.suite("Signals", function(suite)
+	suite:case("registry:GetAddedSignal()", function(asserts)
+		local registry = createRegistry()
+		local Health = registry:CreateComponent<<number>>()
+
+		local count = 0
+		local connection = registry:GetAddedSignal(Health):Connect(function(entity)
+			count += 1
+		end)
+
+		local entity = registry:CreateEntity()
+		registry:AddComponent(entity, Health)
+
+		asserts.eq(count, 1)
+		connection:Disconnect()
+		registry:RemoveComponent(entity, Health)
+		registry:AddComponent(entity, Health)
+		asserts.eq(count, 1)
+	end)
+
+	suite:case("registry:GetChangedSignal()", function(asserts)
+		local registry = createRegistry()
+		local Health = registry:CreateComponent<<number>>()
+
+		local count = 0
+		registry:GetChangedSignal(Health):Connect(function(entity)
+			count += 1
+		end)
+
+		local entity = registry:CreateEntity()
+		registry:SetComponent(entity, Health, 100)
+		registry:SetComponent(entity, Health, 101)
+
+		asserts.eq(count, 1)
+	end)
+
+	suite:case("registry:GetRemovedSignal()", function(asserts)
+		local registry = createRegistry()
+		local Health = registry:CreateComponent<<number>>()
+
+		local count = 0
+		registry:GetRemovedSignal(Health):Connect(function(entity)
+			count += 1
+		end)
+
+		local entity = registry:CreateEntity()
+		registry:AddComponent(entity, Health)
+		registry:RemoveComponent(entity, Health)
+
+		asserts.eq(count, 1)
+	end)
+end)

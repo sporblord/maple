@@ -7,7 +7,7 @@ type Signal<T... = ...any> = Types.Signal<T...>
 
 local function SignalFire<T...>(self: Signal<T...>, ...: T...)
 	for i = 1, #self.listeners do
-		task.defer(self.listeners[i], ...)
+		self.listeners[i](...)
 	end
 end
 
