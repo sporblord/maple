@@ -182,6 +182,20 @@ local function Exists(self: Registry, id: number)
 	return self.versions[key] == version
 end
 
+local function GetRelation(self: Registry, id: number)
+	local key = Ids.GetPairFirst(id)
+	local version = self.versions[key] or 0
+
+	return Ids.Create(key, version)
+end
+
+local function GetTarget(self: Registry, id: number)
+	local key = Ids.GetPairSecond(id)
+	local version = self.versions[key] or 0
+
+	return Ids.Create(key, version)
+end
+
 local function SetPartition(self: Registry, partitionLow: number, partitionHigh: number)
 	assert(partitionLow >= 0, "partitionLow must not be negative")
 	assert(partitionLow < ID_KEY_MAX, "partitionLow must be less than ID_KEY_MAX")
@@ -427,6 +441,8 @@ local function new(): Registry
 		SetComponent = SetComponent :: any,
 		RemoveComponent = RemoveComponent :: any,
 		Delete = Delete :: any,
+		GetRelation = GetRelation :: any,
+		GetTarget = GetTarget :: any,
 		Exists = Exists :: any,
 		SetPartition = SetPartition,
 

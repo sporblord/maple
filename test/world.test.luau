@@ -7,6 +7,7 @@ type Id = Maple.Id
 
 const GetKey = Maple.GetKey :: (Id) -> number
 const GetVersion = Maple.GetVersion :: (Id) -> number
+const Pair = Maple.Pair
 
 -- how many entities to test with
 local N = 1e3
@@ -17,34 +18,6 @@ end
 
 local function createRegistry()
 	return Maple.Registry.new()
-end
-
-local function generate()
-	local registry = createRegistry()
-
-	local ID_A = registry:CreateComponent()
-	local ID_B = registry:CreateComponent()
-	local ID_C = registry:CreateComponent()
-	local ID_D = registry:CreateComponent()
-	local ID_E = registry:CreateComponent()
-
-	local ids = { ID_A, ID_B, ID_C, ID_D, ID_E }
-
-	return registry, ids
-end
-
-local function generateEntities(registry: Maple.Registry, count: number, callback: (Entity) -> ()?)
-	local entities = {}
-	for i = 1, count do
-		local entity = registry:CreateEntity()
-		if callback then
-			callback(entity)
-		end
-
-		entities[i] = entity
-	end
-
-	return entities
 end
 
 test.suite("registry:CreateEntity()", function(suite)
@@ -263,5 +236,76 @@ test.case("registry:View()", function(suit)
 		end
 
 		asserts.eq(count, 10)
+	end)
+end)
+
+test.suite("Pairs", function(suite)
+	suite:case("Create pair", function(asserts)
+		local registry = createRegistry()
+
+		local ChildOf = registry:CreateComponent()
+		local mother = registry:CreateEntity()
+
+		local childOfMother = Pair(ChildOf, mother)
+		asserts.eq(registry:GetRelation(childOfMother), ChildOf)
+		asserts.eq(registry:GetTarget(childOfMother), mother)
+	end)
+
+	suite:case("Add pair", function(asserts)
+		local registry = createRegistry()
+
+		local ChildOf = registry:CreateComponent()
+		local mother = registry:CreateEntity()
+		local daughter = registry:CreateEntity()
+
+		registry:AddComponent(daughter, Pair(ChildOf, mother))
+		asserts.eq(registry:HasComponent(daughter, Pair(ChildOf, mother)), true)
+	end)
+
+	suite:case("Set pair", function(asserts)
+		local registry = createRegistry()
+
+		local Previous = registry:CreateComponent()
+		local Health = registry:CreateComponent()
+		local sporb = registry:CreateEntity()
+
+		registry:SetComponent(sporb, Pair(Previous, Health), 67)
+		asserts.eq(registry:GetComponent(sporb, Pair(Previous, Health)), 67)
+	end)
+
+	suite:case("Remove pair", function(asserts)
+		local registry = createRegistry()
+
+		local ChildOf = registry:CreateComponent()
+		local mother = registry:CreateEntity()
+		local daughter = registry:CreateEntity()
+
+		registry:AddComponent(daughter, Pair(ChildOf, mother))
+		asserts.eq(registry:HasComponent(daughter, Pair(ChildOf, mother)), true)
+		registry:RemoveComponent(daughter, Pair(ChildOf, mother))
+		asserts.eq(registry:HasComponent(daughter, Pair(ChildOf, mother)), false)
+	end)
+
+	suite:case("View pair", function(asserts)
+		local registry = createRegistry()
+
+		local ChildOf = registry:CreateComponent()
+		local mother = registry:CreateEntity()
+
+		for i = 1, 10 do
+			local child = registry:CreateEntity()
+			registry:AddComponent(child, Pair(ChildOf, mother))
+		end
+
+		local count = 0
+		for entity, child in registry:View(Pair(ChildOf, mother)) do
+			count += 1
+		end
+
+		asserts.eq(count, 10)
+	end)
+
+	suite:case("Delete pair", function(asserts)
+
 	end)
 end)

@@ -3,11 +3,11 @@
 const ID_KEY_MASK = 2^16
 const ID_KEY_MAX = ID_KEY_MASK - 1
 
-const ID_VERSION_MASK = 2^37
+const ID_VERSION_MASK = 2^32
 const ID_VERSION_MAX = ID_VERSION_MASK - 1
 
-const ID_PAIR_MASK = 2^53
-const ID_MAX = 2^53 - 1
+const ID_PAIR_MASK = 2^48
+const ID_MAX = ID_PAIR_MASK - 1
 
 local function Create(key: number, version: number)
 	assert(key < ID_KEY_MASK and version < ID_VERSION_MASK, "ID overflow")
@@ -25,15 +25,15 @@ end
 local function CreatePair(a: number, b: number)
 	local aKey = GetKey(a)
 	local bKey = GetKey(b)
-	return aKey + (bKey * ID_PAIR_MASK) + ID_PAIR_MASK
+	return aKey + (bKey * ID_KEY_MASK) + ID_PAIR_MASK
 end
 
 local function GetPairFirst(id: number)
-	return id % ID_PAIR_MASK
+	return (id - ID_PAIR_MASK) % ID_KEY_MASK
 end
 
 local function GetPairSecond(id: number)
-	return (id // ID_PAIR_MASK) % ID_PAIR_MASK
+	return (id - ID_PAIR_MASK) // ID_KEY_MASK
 end
 
 local function IsPair(id: number)

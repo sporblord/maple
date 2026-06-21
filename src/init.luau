@@ -10,6 +10,7 @@ export type Registry = Types.Registry
 return {
 	GetKey = Ids.GetKey,
 	GetVersion = Ids.GetVersion,
+	Pair = Ids.CreatePair :: (Id, Id) -> Id,
 
-	Registry = Registry
+	Registry = Registry,
 }

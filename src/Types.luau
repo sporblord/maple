@@ -67,6 +67,8 @@ export type Registry = {
 	SetComponent: <T>(self: Registry, entity: Entity, id: Id<T>, value: T) -> (),
 	RemoveComponent: (self: Registry, entity: Entity, id: Id) -> (),
 	Delete: (self: Registry, entity: Entity) -> (),
+	GetRelation: (self: Registry, id: Id) -> Id,
+	GetTarget: (self: Registry, id: Id) -> Id,
 	Exists: (self: Registry, id: Id) -> boolean,
 	SetPartition: (self: Registry, partitionLow: number, partitionHigh: number) -> (),
 
