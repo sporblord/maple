@@ -147,17 +147,11 @@ local function Exists(self: Registry, id: number)
 end
 
 local function GetRelation(self: Registry, id: number)
-	local key = Ids.GetPairFirst(id)
-	local version = self.versions[key] or 0
-
-	return Ids.Create(key, version)
+	return Ids.GetPairFirst(id)
 end
 
 local function GetTarget(self: Registry, id: number)
-	local key = Ids.GetPairSecond(id)
-	local version = self.versions[key] or 0
-
-	return Ids.Create(key, version)
+	return Ids.GetPairSecond(id)
 end
 
 local function Delete(self: Registry, id: number)
